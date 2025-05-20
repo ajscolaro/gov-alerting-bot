@@ -33,8 +33,7 @@ A Python bot that monitors governance proposals from Tally and Cosmos SDK platfo
 │   ├── integrations/
 │   │   ├── tally/             # Tally-specific integration
 │   │   └── cosmos/            # Cosmos SDK integration
-│   ├── monitor.py             # Main monitoring script
-│   └── cosmos_monitor.py      # Cosmos monitoring specific code
+│   └── monitor.py             # Main monitoring script
 ├── tests/                     # Test suite
 ├── .env                       # Environment configuration
 ├── requirements.txt           # Production dependencies
@@ -247,12 +246,6 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-3. Add new platforms:
-   - Create a new directory in `src/integrations/`
-   - Implement a client, alert handler, and models
-   - Update `watchlist.json` with the new platform section
-   - Add the platform to the monitoring loop in `monitor.py`
-
 ## Troubleshooting
 
 - **Missing thread replies**: Check if the proposal state contains a valid `thread_ts`
@@ -260,14 +253,6 @@ pytest tests/ -v
 - **API version errors**: Some Cosmos chains use v1 instead of v1beta1 APIs
 - **Notification issues**: Ensure the Slack bot has permissions for the channel
 - **Missing proposals**: Check the console logs for API errors
-
-## Tips
-
-- The bot tracks proposal status in `data/proposal_state.json` with sections for each platform
-- Use `reply_broadcast=True` to ensure thread replies are visible in the channel
-- New platform integrations should follow the pattern of existing ones
-- Add `framework` parameter when storing/retrieving proposal data in different sections
-- Use consistent message formatting across all platforms for better user experience
 
 ## Contributing
 
