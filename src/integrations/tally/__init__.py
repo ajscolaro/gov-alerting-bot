@@ -1,0 +1,1 @@
+"""Tally integration for governance proposals.""" 

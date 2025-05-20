@@ -1,0 +1,1 @@
+"""Cosmos SDK integration for governance proposals."""
