@@ -54,34 +54,37 @@ class PersistentProposalTracker:
         except Exception as e:
             logger.error(f"Error saving proposal state: {e}")
     
-    def get_proposal(self, proposal_id: str, framework: str = "tally") -> Optional[Dict]:
+    def get_proposal(self, proposal_id: str, framework: str = "tally", project_id: Optional[str] = None) -> Optional[Dict]:
         """Get proposal by ID and framework type."""
-        return self.proposals.get(framework, {}).get(proposal_id)
+        key = f"{project_id}:{proposal_id}" if project_id else proposal_id
+        return self.proposals.get(framework, {}).get(key)
     
     def update_proposal(self, proposal_id: str, status: str, thread_ts: Optional[str] = None, 
-                       alerted: bool = False, framework: str = "tally"):
+                       alerted: bool = False, framework: str = "tally", project_id: Optional[str] = None):
         """Update proposal with framework type."""
         if framework not in self.proposals:
             self.proposals[framework] = {}
             
-        if proposal_id in self.proposals[framework]:
-            self.proposals[framework][proposal_id]["status"] = status
+        key = f"{project_id}:{proposal_id}" if project_id else proposal_id
+        if key in self.proposals[framework]:
+            self.proposals[framework][key]["status"] = status
             if thread_ts:
-                self.proposals[framework][proposal_id]["thread_ts"] = thread_ts
+                self.proposals[framework][key]["thread_ts"] = thread_ts
             if alerted:
-                self.proposals[framework][proposal_id]["alerted"] = True
+                self.proposals[framework][key]["alerted"] = True
         else:
-            self.proposals[framework][proposal_id] = {
+            self.proposals[framework][key] = {
                 "status": status,
                 "thread_ts": thread_ts,
                 "alerted": alerted
             }
         self._save_state()
     
-    def remove_proposal(self, proposal_id: str, framework: str = "tally"):
+    def remove_proposal(self, proposal_id: str, framework: str = "tally", project_id: Optional[str] = None):
         """Remove proposal by ID and framework type."""
-        if framework in self.proposals and proposal_id in self.proposals[framework]:
-            del self.proposals[framework][proposal_id]
+        key = f"{project_id}:{proposal_id}" if project_id else proposal_id
+        if framework in self.proposals and key in self.proposals[framework]:
+            del self.proposals[framework][key]
             self._save_state()
     
     def get_tracked_proposals_count(self, framework: str = None) -> int:
@@ -129,6 +132,7 @@ async def monitor_tally_proposals(
                     
                     try:
                         tally_metadata = project["metadata"]
+                        project_id = project["platform_specific_id"]
                         proposals = await client.get_proposals(
                             tally_metadata["governor_address"],
                             tally_metadata["chain_id"]
@@ -138,7 +142,7 @@ async def monitor_tally_proposals(
                             # Construct proposal URL
                             proposal.proposal_url = f"{tally_metadata['tally_url']}/proposal/{proposal.id}"
                             
-                            current = tracker.get_proposal(proposal.id)
+                            current = tracker.get_proposal(proposal.id, project_id=project_id)
                             previous_status = current["status"] if current else None
                             
                             if alert_handler.should_alert(proposal, previous_status):
@@ -178,7 +182,7 @@ async def monitor_tally_proposals(
                                 if result["ok"]:
                                     if alert_type == "proposal_active":
                                         # Store thread timestamp for future replies
-                                        tracker.update_proposal(proposal.id, proposal.status, result["ts"], True)
+                                        tracker.update_proposal(proposal.id, proposal.status, result["ts"], True, project_id=project_id)
                                         logger.info(f"Stored thread timestamp for new proposal: {result['ts']}")
                                     elif alert_type == "proposal_ended":
                                         # Check if this is a final status
@@ -190,23 +194,23 @@ async def monitor_tally_proposals(
                                         
                                         if proposal.status.lower() in final_statuses:
                                             # Remove ended proposals from tracking
-                                            tracker.remove_proposal(proposal.id)
+                                            tracker.remove_proposal(proposal.id, project_id=project_id)
                                             logger.info(f"Removed ended proposal from tracking: {proposal.id}")
                                         else:
                                             # Update status without changing thread_ts
-                                            tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True)
+                                            tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True, project_id=project_id)
                                             logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
                                     else:
                                         # Update status without changing thread_ts
-                                        tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True)
+                                        tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True, project_id=project_id)
                                         logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
                                 else:
                                     # Update status without changing thread_ts
-                                    tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"))
+                                    tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project_id)
                                     logger.warning(f"Failed to send alert, updated status only: {proposal.status}")
                             elif current and current.get("status") != proposal.status:
                                 # Just update the status if alert is not needed but status changed
-                                tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"))
+                                tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project_id)
                                 logger.info(f"Updated proposal status without alert: {proposal.status}")
                             
                     except Exception as e:
@@ -251,6 +255,7 @@ async def monitor_cosmos_proposals(
                 
                 try:
                     metadata = network["metadata"]
+                    network_id = network["platform_specific_id"]
                     async with CosmosClient(
                         base_url=metadata["rpc_url"],
                         chain_id=metadata["chain_id"],
@@ -261,7 +266,7 @@ async def monitor_cosmos_proposals(
                         proposals = await client.get_proposals()
                         
                         for proposal in proposals:
-                            current = tracker.get_proposal(proposal.id, framework="cosmos")
+                            current = tracker.get_proposal(proposal.id, framework="cosmos", project_id=network_id)
                             previous_status = current["status"] if current else None
                             
                             # Skip if we've already alerted about this proposal and it hasn't changed status
@@ -269,6 +274,26 @@ async def monitor_cosmos_proposals(
                                 logger.info(f"Skipping already alerted proposal {proposal.id} with unchanged status")
                                 continue
                             
+                            # Always check for status changes, even if we've alerted before
+                            if current and current.get("status") != proposal.status:
+                                # If status changed from voting period to something else, treat as ended
+                                if current.get("status") == "PROPOSAL_STATUS_VOTING_PERIOD" and proposal.status != "PROPOSAL_STATUS_VOTING_PERIOD":
+                                    alert_type = "proposal_ended"
+                                    logger.info(f"Proposal {proposal.id} has ended with status: {proposal.status}")
+                                else:
+                                    # For other status changes, just update without alerting
+                                    tracker.update_proposal(
+                                        proposal.id,
+                                        proposal.status,
+                                        current.get("thread_ts"),
+                                        current.get("alerted", False),
+                                        framework="cosmos",
+                                        project_id=network_id
+                                    )
+                                    logger.info(f"Updated proposal status without alert: {proposal.status}")
+                                    continue
+                            
+                            # Check if we should alert based on status change
                             if alert_handler.should_alert(proposal, previous_status):
                                 # Determine alert type
                                 if not previous_status:
@@ -311,14 +336,15 @@ async def monitor_cosmos_proposals(
                                             proposal.status,
                                             result["ts"],
                                             True,  # Mark as alerted
-                                            framework="cosmos"
+                                            framework="cosmos",
+                                            project_id=network_id
                                         )
                                         logger.info(f"Stored thread timestamp for new proposal: {result['ts']}")
                                     elif alert_type == "proposal_ended":
                                         # Check if this is a final status
                                         if proposal.status in final_statuses:
                                             # Remove ended proposals from tracking
-                                            tracker.remove_proposal(proposal.id, framework="cosmos")
+                                            tracker.remove_proposal(proposal.id, framework="cosmos", project_id=network_id)
                                             logger.info(f"Removed ended proposal from tracking: {proposal.id}")
                                         else:
                                             # Update status without changing thread_ts
@@ -327,7 +353,8 @@ async def monitor_cosmos_proposals(
                                                 proposal.status,
                                                 current.get("thread_ts"),
                                                 True,  # Mark as alerted
-                                                framework="cosmos"
+                                                framework="cosmos",
+                                                project_id=network_id
                                             )
                                             logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
                                 else:
@@ -337,7 +364,8 @@ async def monitor_cosmos_proposals(
                                         proposal.status,
                                         current.get("thread_ts") if current else None,
                                         current.get("alerted", False),  # Keep existing alerted state
-                                        framework="cosmos"
+                                        framework="cosmos",
+                                        project_id=network_id
                                     )
                                     logger.warning(f"Failed to send alert, updated status only: {proposal.status}")
                             elif current and current.get("status") != proposal.status:
@@ -347,7 +375,8 @@ async def monitor_cosmos_proposals(
                                     proposal.status,
                                     current.get("thread_ts"),
                                     current.get("alerted", False),  # Keep existing alerted state
-                                    framework="cosmos"
+                                    framework="cosmos",
+                                    project_id=network_id
                                 )
                                 logger.info(f"Updated proposal status without alert: {proposal.status}")
                 
@@ -410,7 +439,7 @@ async def process_cosmos_proposal_alert(
         if alert_type == "proposal_voting":
             # Store thread timestamp for future replies
             tracker.update_proposal(
-                f"{network_id}:{proposal.id}", 
+                proposal.id,
                 proposal.status,
                 result["ts"],
                 True,

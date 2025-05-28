@@ -37,14 +37,22 @@ class CosmosProposal(BaseModel):
 class CosmosClient:
     """Client for interacting with Cosmos SDK network APIs."""
     
-    def __init__(self, base_url: str, chain_id: str, explorer_url: str = None, explorer_type: str = "mintscan"):
+    def __init__(self, base_url: str, chain_id: str, explorer_url: Optional[str] = None, explorer_type: str = "mintscan"):
+        """Initialize client with base URL and chain ID."""
         self.base_url = base_url
         self.chain_id = chain_id
         self.explorer_url = explorer_url
         self.explorer_type = explorer_type
-        self._last_request_time = 0
-        self._min_request_interval = 1.0  # Minimum time between requests in seconds
         self._session_instance = None
+        self._min_request_interval = 1.0  # Minimum seconds between requests
+        self._last_request_time = 0
+        
+        # Log initialization details
+        logger.info(f"Initializing CosmosClient with:")
+        logger.info(f"  Base URL: {base_url}")
+        logger.info(f"  Chain ID: {chain_id}")
+        logger.info(f"  Explorer URL: {explorer_url}")
+        logger.info(f"  Explorer Type: {explorer_type}")
         
         # Derive the Tendermint RPC URL from the base URL
         # Convert something like https://rest.cosmos.directory/cosmoshub to https://rpc.cosmos.directory/cosmoshub
@@ -157,7 +165,9 @@ class CosmosClient:
         # First try the v1 endpoint which is used by newer chains like Osmosis
         v1_url = f"{self.base_url}/cosmos/gov/v1/proposals?proposal_status=PROPOSAL_STATUS_VOTING_PERIOD"
         logger.info(f"Trying v1 endpoint first: {v1_url}")
+        logger.info(f"Full v1 URL: {v1_url}")
         
+        v1_proposals = []
         try:
             async with session.get(v1_url) as v1_response:
                 if v1_response.status == 200:
@@ -200,7 +210,7 @@ class CosmosClient:
                                                 description = content["description"]
                                 
                                 # Create and add the proposal
-                                proposals.append(
+                                v1_proposals.append(
                                     CosmosProposal(
                                         id=proposal_id,
                                         title=title,
@@ -216,28 +226,36 @@ class CosmosClient:
                             except Exception as e:
                                 logger.error(f"Error processing v1 proposal: {e}")
                         
-                        # If we found proposals with v1 endpoint, return them
-                        if proposals:
-                            return proposals
+                        logger.info(f"Successfully processed {len(v1_proposals)} proposals from v1 endpoint")
+                elif v1_response.status == 404:
+                    # If v1 endpoint returns 404, the chain might not support v1 yet
+                    logger.info("v1 endpoint not found, falling back to v1beta1")
+                else:
+                    # For other errors, log and try v1beta1
+                    error_text = await v1_response.text()
+                    logger.error(f"Error from v1 endpoint: {v1_response.status} - {error_text}")
         except Exception as e:
             logger.error(f"Error trying v1 endpoint: {e}")
         
-        # If v1 endpoint didn't work or found no proposals, try the v1beta1 endpoint
+        # Try the v1beta1 endpoint
         url = f"{self.base_url}/cosmos/gov/v1beta1/proposals?proposal_status=2"  # 2 = VOTING_PERIOD
         logger.info(f"Trying v1beta1 endpoint: {url}")
+        logger.info(f"Full v1beta1 URL: {url}")
         
         try:
             async with session.get(url) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Failed to fetch proposals from v1beta1: {response.status} - {error_text}")
-                    return proposals  # Return whatever we got from v1 endpoint (might be empty)
+                    logger.error(f"Request URL: {url}")
+                    logger.error(f"Response headers: {response.headers}")
+                    return v1_proposals  # Return whatever we got from v1 endpoint
                 
                 data = await response.json()
                 
                 if "proposals" not in data:
                     logger.error(f"Unexpected response format from v1beta1: {data}")
-                    return proposals  # Return whatever we got from v1 endpoint
+                    return v1_proposals  # Return whatever we got from v1 endpoint
                 
                 # Process only proposals in voting period (we should only get these due to the filter)
                 for proposal in data["proposals"]:
@@ -247,6 +265,11 @@ class CosmosClient:
                         
                         # Verify this is actually a voting period proposal
                         if status != "PROPOSAL_STATUS_VOTING_PERIOD":
+                            continue
+                        
+                        # Skip if we already have this proposal from v1 endpoint
+                        if any(p.id == proposal_id for p in v1_proposals):
+                            logger.info(f"Skipping proposal {proposal_id} as it was already found in v1 endpoint")
                             continue
                         
                         proposals.append(
@@ -266,10 +289,13 @@ class CosmosClient:
                     except Exception as e:
                         logger.error(f"Error processing v1beta1 proposal: {e}")
                 
-                return proposals
+                # Combine v1 and v1beta1 proposals
+                all_proposals = v1_proposals + proposals
+                logger.info(f"Combined {len(v1_proposals)} v1 proposals with {len(proposals)} v1beta1 proposals")
+                return all_proposals
         except Exception as e:
             logger.error(f"Error fetching proposals from v1beta1: {e}")
-            return proposals  # Return whatever we got from v1 endpoint
+            return v1_proposals  # Return whatever we got from v1 endpoint
     
     async def _fetch_mintscan_proposal_details(self, proposal_id: str) -> tuple[str, str]:
         """Fetch proposal details directly from Mintscan API."""
