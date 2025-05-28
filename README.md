@@ -1,13 +1,12 @@
 # Governance Alert Bot
 
-A Python bot that monitors governance proposals from Tally and Cosmos SDK platforms and sends alerts to Slack. Additional platform integrations (Aragon, Sky) are currently under development.
+A Python bot that monitors governance proposals from Tally and Cosmos SDK platforms and sends alerts to Slack.
 
 ## Features
 
 - Monitors governance proposals from:
   - Tally (Ethereum/EVM governance)
   - Cosmos SDK (Cosmos Hub, Osmosis, Celestia, and other Cosmos chains)
-  - Additional platforms under development
 - Sends alerts to Slack for:
   - New active proposals 
   - Proposal status updates
@@ -29,15 +28,25 @@ A Python bot that monitors governance proposals from Tally and Cosmos SDK platfo
 ├── src/
 │   ├── common/
 │   │   ├── alerts/            # Common alert handling code
-│   │   └── models.py          # Shared data models
+│   │   │   ├── base.py       # Base alert handler
+│   │   │   └── slack.py      # Slack alert sender
+│   │   ├── models.py         # Shared data models
+│   │   ├── config.py         # Configuration handling
+│   │   └── __init__.py
 │   ├── integrations/
-│   │   ├── tally/             # Tally-specific integration
-│   │   └── cosmos/            # Cosmos SDK integration
-│   └── monitor.py             # Main monitoring script
-├── tests/                     # Test suite
-├── .env                       # Environment configuration
-├── requirements.txt           # Production dependencies
-└── requirements-dev.txt       # Development dependencies
+│   │   ├── cosmos/           # Cosmos SDK integration
+│   │   │   ├── client.py     # API client for Cosmos chains
+│   │   │   ├── alerts.py     # Alert formatting for Cosmos
+│   │   │   └── __init__.py
+│   │   └── tally/            # Tally integration
+│   │       ├── client.py     # API client for Tally
+│   │       ├── alerts.py     # Alert formatting for Tally
+│   │       └── __init__.py
+│   ├── monitor.py            # Main monitoring script
+│   └── __init__.py
+├── .env                    # Environment configuration
+├── requirements.txt        # Production dependencies
+└── requirements-dev.txt    # Development dependencies
 ```
 
 ## Quick Start
@@ -100,11 +109,7 @@ The bot will automatically populate this file as it monitors proposals. Each pro
 
 ### watchlist.json
 
-This file defines which projects and networks to monitor. See the Watchlist Configuration section below for details.
-
-## Watchlist Configuration
-
-The watchlist.json file defines which projects and networks to monitor. Here's the structure for each supported platform:
+This file defines which projects and networks to monitor. Here's the structure for each supported platform:
 
 ### Tally Projects
 
@@ -112,16 +117,16 @@ The watchlist.json file defines which projects and networks to monitor. Here's t
 {
   "tally": [
     {
-      "name": "Project Name",
-      "platform_specific_id": "project-id",
-      "description": "Project Description",
+      "name": "Example Protocol",
+      "platform_specific_id": "example-protocol",
+      "description": "Example Protocol Governance",
       "metadata": {
         "type": "protocol",
         "chain": "ethereum",
-        "governor_address": "0x...",
+        "governor_address": "0x1234...",
         "chain_id": "eip155:1",
-        "token_address": "0x...",
-        "tally_url": "https://www.tally.xyz/gov/..."
+        "token_address": "0x5678...",
+        "tally_url": "https://www.tally.xyz/gov/example"
       }
     }
   ]
@@ -142,14 +147,14 @@ Required fields for Tally projects:
 {
   "cosmos": [
     {
-      "name": "Network Name",
-      "platform_specific_id": "network-id",
-      "description": "Network Description",
+      "name": "Example Network",
+      "platform_specific_id": "example-network",
+      "description": "Example Network Governance",
       "metadata": {
         "type": "network",
-        "chain_id": "chain-id",
-        "rpc_url": "https://rest.cosmos.directory/network",
-        "explorer_url": "https://www.mintscan.io/network"
+        "chain_id": "example-1",
+        "rpc_url": "https://rest.cosmos.directory/example",
+        "explorer_url": "https://www.mintscan.io/example"
       }
     }
   ]
@@ -168,23 +173,6 @@ Optional fields for Cosmos networks:
   - "mintscan": For networks supported by Mintscan
   - "pingpub": For networks using Ping.pub explorer
 - `metadata.explorer_name`: Display name for the explorer (default: "Mintscan")
-
-Example for a Ping.pub network:
-```json
-{
-  "name": "Terra",
-  "platform_specific_id": "terra",
-  "description": "Terra Network Governance",
-  "metadata": {
-    "type": "network",
-    "chain_id": "phoenix-1",
-    "rpc_url": "https://rest.cosmos.directory/terra2",
-    "explorer_url": "https://ping.pub/terra/gov",
-    "explorer_type": "pingpub",
-    "explorer_name": "Ping.pub"
-  }
-}
-```
 
 ## Alert Types
 
@@ -234,33 +222,12 @@ The bot implements rate limiting to respect platform API restrictions:
 - Automatic waiting between requests
 - Configurable polling intervals via environment variables
 
-## Development
-
-1. Install development dependencies:
-```bash
-pip install -r requirements-dev.txt
-```
-
-2. Run tests:
-```bash
-pytest tests/ -v
-```
-
-## Troubleshooting
-
-- **Missing thread replies**: Check if the proposal state contains a valid `thread_ts`
-- **Rate limit errors**: Increase the `_min_request_interval` in the client
-- **API version errors**: Some Cosmos chains use v1 instead of v1beta1 APIs
-- **Notification issues**: Ensure the Slack bot has permissions for the channel
-- **Missing proposals**: Check the console logs for API errors
-
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run tests and code quality checks
-5. Submit a pull request
+4. Submit a pull request
 
 ## License
 
