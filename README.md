@@ -1,16 +1,18 @@
 # Governance Alert Bot
 
-A Python bot that monitors governance proposals from Tally and Cosmos SDK platforms and sends alerts to Slack.
+A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms, and Snapshot, sending alerts to Slack.
 
 ## Features
 
 - Monitors governance proposals from:
   - Tally (Ethereum/EVM governance)
   - Cosmos SDK (Cosmos Hub, Osmosis, Celestia, and other Cosmos chains)
+  - Snapshot (Off-chain governance platforms)
 - Sends alerts to Slack for:
   - New active proposals 
   - Proposal status updates
   - Ended proposals
+  - Deleted proposals (Snapshot)
 - Thread management: Updates and end states are sent as thread replies to the original alert
 - Consistent message formatting with action buttons to view proposals
 - Rate-limited API calls to respect platform restrictions
@@ -25,10 +27,12 @@ A Python bot that monitors governance proposals from Tally and Cosmos SDK platfo
 ├── data/
 │   ├── watchlists/              # Configuration for projects to monitor
 │   │   ├── tally_watchlist.json    # Tally projects configuration
-│   │   └── cosmos_watchlist.json   # Cosmos networks configuration
+│   │   ├── cosmos_watchlist.json   # Cosmos networks configuration
+│   │   └── snapshot_watchlist.json # Snapshot spaces configuration
 │   └── proposal_tracking/       # State tracking for proposals
 │       ├── tally_proposal_state.json    # Tally proposals state
-│       └── cosmos_proposal_state.json   # Cosmos proposals state
+│       ├── cosmos_proposal_state.json   # Cosmos proposals state
+│       └── snapshot_proposal_state.json # Snapshot proposals state
 ├── src/
 │   ├── common/
 │   │   ├── alerts/            # Common alert handling code
@@ -42,13 +46,18 @@ A Python bot that monitors governance proposals from Tally and Cosmos SDK platfo
 │   │   │   ├── client.py     # API client for Cosmos chains
 │   │   │   ├── alerts.py     # Alert formatting for Cosmos
 │   │   │   └── __init__.py
-│   │   └── tally/            # Tally integration
-│   │       ├── client.py     # API client for Tally
-│   │       ├── alerts.py     # Alert formatting for Tally
+│   │   ├── tally/            # Tally integration
+│   │   │   ├── client.py     # API client for Tally
+│   │   │   ├── alerts.py     # Alert formatting for Tally
+│   │   │   └── __init__.py
+│   │   └── snapshot/         # Snapshot integration
+│   │       ├── client.py     # API client for Snapshot
+│   │       ├── alerts.py     # Alert formatting for Snapshot
 │   │       └── __init__.py
 │   ├── monitor/              # Monitoring scripts
 │   │   ├── monitor_tally.py  # Tally monitoring script
 │   │   ├── monitor_cosmos.py # Cosmos monitoring script
+│   │   ├── monitor_snapshot.py # Snapshot monitoring script
 │   │   └── __init__.py
 │   ├── monitor.py            # Main monitoring script (runs all monitors)
 │   └── __init__.py
@@ -137,6 +146,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ### Rate Limiting
 - Tally API: 1 request per 1 second
 - Cosmos REST APIs: 1 second intervals between requests
+- Snapshot API: 1 request per second with exponential backoff
 - Configurable polling intervals via environment variables
 - Automatic waiting between requests to respect rate limits
 
@@ -214,6 +224,7 @@ Each platform has its own state file that tracks the proposals being monitored:
 
 - `data/proposal_tracking/tally_proposal_state.json`: Tracks Tally proposals
 - `data/proposal_tracking/cosmos_proposal_state.json`: Tracks Cosmos proposals
+- `data/proposal_tracking/snapshot_proposal_state.json`: Tracks Snapshot proposals
 
 Each proposal's state includes:
 - Current status
@@ -302,6 +313,29 @@ Optional fields for Cosmos networks:
   - "mintscan": For networks supported by Mintscan
   - "pingpub": For networks using Ping.pub explorer
 
+### Snapshot Spaces (data/watchlists/snapshot_watchlist.json)
+
+```json
+{
+  "projects": [
+    {
+      "name": "Example Space",
+      "description": "Example Space Governance",
+      "metadata": {
+        "space": "example.eth",
+        "snapshot_url": "https://snapshot.org/#/example.eth"
+      }
+    }
+  ]
+}
+```
+
+Required fields for Snapshot spaces:
+- `name`: Display name for the space
+- `description`: Brief description of the space
+- `metadata.space`: Snapshot space ID (e.g., "example.eth")
+- `metadata.snapshot_url`: Snapshot space URL
+
 ## Alert Types
 
 ### Tally Alerts
@@ -329,6 +363,23 @@ Optional fields for Cosmos networks:
 
 2. **Proposal Ended**
    - Voting period ended
+   - Sent as thread reply
+   - Automatically removes proposal from tracking
+
+### Snapshot Alerts
+
+1. **Proposal Active**
+   - New proposal detected in active state
+   - Includes link to view on Snapshot
+   - Starting point for thread notifications
+
+2. **Proposal Ended**
+   - Voting period ended
+   - Sent as thread reply
+   - Automatically removes proposal from tracking
+
+3. **Proposal Deleted**
+   - Proposal no longer exists
    - Sent as thread reply
    - Automatically removes proposal from tracking
 
@@ -361,6 +412,7 @@ The bot maintains thread context for each proposal:
 ### Rate Limiting
 - Tally API: 1 request per 1 second
 - Cosmos REST APIs: 1 second intervals between requests
+- Snapshot API: 1 request per second with exponential backoff
 - Configurable polling intervals via environment variables
 - Automatic waiting between requests to respect rate limits
 
