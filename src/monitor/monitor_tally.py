@@ -14,6 +14,7 @@ from src.common.alerts.slack import SlackAlertSender
 from src.common.alerts.base import AlertConfig
 from src.integrations.tally.client import TallyClient, TallyProposal
 from src.integrations.tally.alerts import TallyAlertHandler
+from src.common.config import settings
 
 # Configure logging
 logging.basicConfig(
@@ -184,12 +185,22 @@ async def process_tally_proposal_alert(
         tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project_id)
         logger.info(f"Updated proposal status without alert: {proposal.status}")
 
-async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = None):
-    """Monitor Tally proposals and send alerts."""
+async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
+    """Monitor Tally proposals and send alerts.
+    
+    Args:
+        slack_sender: Optional SlackAlertSender instance
+        continuous: If True, runs in a continuous loop. If False, runs once and exits.
+        check_interval: Number of seconds to wait between checks when running continuously.
+                      Required if continuous is True, ignored otherwise.
+    """
+    if continuous and check_interval is None:
+        raise ValueError("check_interval is required when continuous is True")
+        
     # Initialize components
     config = AlertConfig(
-        slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
-        slack_channel=os.getenv("SLACK_CHANNEL"),
+        slack_bot_token=settings.SLACK_BOT_TOKEN,
+        slack_channel=settings.TEST_SLACK_CHANNEL if not continuous else settings.SLACK_CHANNEL,
         disable_link_previews=False
     )
     if slack_sender is None:
@@ -236,7 +247,9 @@ async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = Non
                 
                 logger.info(f"Currently tracking {tracker.get_tracked_proposals_count()} proposals")
                 
-                check_interval = int(os.getenv("CHECK_INTERVAL", "60").split("#")[0].strip())
+                if not continuous:
+                    break
+                    
                 await asyncio.sleep(check_interval)
                 
             except Exception as e:
@@ -246,7 +259,7 @@ async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = Non
 async def main():
     """Main entry point for Tally monitoring."""
     try:
-        await monitor_tally_proposals()
+        await monitor_tally_proposals(continuous=False)
     except KeyboardInterrupt:
         logger.info("Tally monitoring stopped by user")
     except Exception as e:

@@ -173,12 +173,22 @@ async def process_cosmos_proposal_alert(
         tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), network_id=network["name"])
         logger.info(f"Updated proposal status without alert: {proposal.status}")
 
-async def monitor_cosmos_proposals(slack_sender: Optional[SlackAlertSender] = None):
-    """Monitor Cosmos proposals and send alerts."""
+async def monitor_cosmos_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
+    """Monitor Cosmos proposals and send alerts.
+    
+    Args:
+        slack_sender: Optional SlackAlertSender instance
+        continuous: If True, runs in a continuous loop. If False, runs once and exits.
+        check_interval: Number of seconds to wait between checks when running continuously.
+                      Required if continuous is True, ignored otherwise.
+    """
+    if continuous and check_interval is None:
+        raise ValueError("check_interval is required when continuous is True")
+        
     # Initialize components
     config = AlertConfig(
-        slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
-        slack_channel=os.getenv("SLACK_CHANNEL"),
+        slack_bot_token=settings.SLACK_BOT_TOKEN,
+        slack_channel=settings.TEST_SLACK_CHANNEL if not continuous else settings.SLACK_CHANNEL,
         disable_link_previews=False
     )
     if slack_sender is None:
@@ -240,12 +250,15 @@ async def monitor_cosmos_proposals(slack_sender: Optional[SlackAlertSender] = No
                     logger.error(f"Error processing {network['name']}: {e}")
                     continue
             
+            if not continuous:
+                break
+                
             # Wait for the configured interval before next check
-            await asyncio.sleep(settings.POLLING_INTERVAL)
+            await asyncio.sleep(check_interval)
             
         except Exception as e:
             logger.error(f"Cosmos monitoring stopped due to error: {e}")
             break
 
 if __name__ == "__main__":
-    asyncio.run(monitor_cosmos_proposals()) 
+    asyncio.run(monitor_cosmos_proposals(continuous=False)) 

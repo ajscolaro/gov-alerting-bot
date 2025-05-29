@@ -74,6 +74,7 @@ pip install -r requirements.txt
 ```env
 SLACK_BOT_TOKEN=xoxb-your-token
 SLACK_CHANNEL=your-channel-id
+TEST_SLACK_CHANNEL=your-test-channel-id  # Optional: Channel for testing individual monitors
 TALLY_API_KEY=your-tally-api-key
 CHECK_INTERVAL=60  # Polling interval in seconds
 ```
@@ -138,6 +139,59 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 - Cosmos REST APIs: 1 second intervals between requests
 - Configurable polling intervals via environment variables
 - Automatic waiting between requests to respect rate limits
+
+### Monitoring System
+The bot supports two modes of operation:
+
+1. **Continuous Monitoring** (via `monitor.py`):
+   - Runs all enabled monitors in parallel
+   - Uses a single configurable interval for all monitors
+   - Configure the interval in `.env`:
+     ```env
+     CHECK_INTERVAL=60  # Polling interval in seconds
+     ```
+   - Monitors run indefinitely until stopped
+   - All monitors use the same interval for consistency
+   - Alerts are sent to the main channel defined by `SLACK_CHANNEL`
+
+2. **Single Run** (via individual monitor scripts):
+   - Each monitor can be run independently for testing/debugging
+   - Runs once and exits
+   - No interval configuration needed
+   - Alerts are sent to the test channel defined by `TEST_SLACK_CHANNEL`
+   - Example:
+     ```bash
+     python src/monitor/monitor_tally.py
+     python src/monitor/monitor_cosmos.py
+     ```
+
+### Environment Configuration
+The bot uses environment variables for configuration. Create a `.env` file with the following settings:
+
+```env
+# Required settings
+SLACK_BOT_TOKEN=xoxb-your-token
+SLACK_CHANNEL=your-channel-id
+TALLY_API_KEY=your-tally-api-key
+
+# Optional settings
+TEST_SLACK_CHANNEL=your-test-channel-id  # Channel for testing individual monitors
+CHECK_INTERVAL=60  # Polling interval in seconds for continuous monitoring
+```
+
+### Running the Bot
+```bash
+# Run all monitors continuously (uses SLACK_CHANNEL)
+python src/monitor.py
+
+# Run specific monitors continuously (uses SLACK_CHANNEL)
+python src/monitor.py --monitors tally
+python src/monitor.py --monitors cosmos
+
+# Run individual monitors once for testing (uses TEST_SLACK_CHANNEL)
+python src/monitor/monitor_tally.py
+python src/monitor/monitor_cosmos.py
+```
 
 ### Cosmos Integration Specifics
 - The Cosmos monitor automatically handles both v1 and v1beta1 API versions
