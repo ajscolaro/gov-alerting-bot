@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from dotenv import load_dotenv
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,10 +25,12 @@ class Settings(BaseSettings):
     
     # Monitoring settings
     POLLING_INTERVAL: int = int(os.getenv("POLLING_INTERVAL", "300"))  # 5 minutes default
+    CHECK_INTERVAL: int = int(os.getenv("CHECK_INTERVAL", "60"))  # 1 minute default
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True
+    }
 
 
 # Create settings instance

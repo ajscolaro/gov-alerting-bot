@@ -1,7 +1,11 @@
+import logging
+import os
 import aiohttp
 from typing import Dict, Optional
 
-from src.common.alerts.base import BaseAlertHandler, AlertConfig
+from .base import BaseAlertHandler, AlertConfig
+
+logger = logging.getLogger(__name__)
 
 
 class SlackAlertSender:

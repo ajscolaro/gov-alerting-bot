@@ -37,7 +37,7 @@ class CosmosProposal(BaseModel):
 class CosmosClient:
     """Client for interacting with Cosmos SDK network APIs."""
     
-    def __init__(self, base_url: str, chain_id: str, explorer_url: Optional[str] = None, explorer_type: str = "mintscan"):
+    def __init__(self, base_url: str, chain_id: str, explorer_url: Optional[str] = None, explorer_type: str = "mintscan", fallback_url: Optional[str] = None):
         """Initialize client with base URL and chain ID."""
         self.base_url = base_url
         self.chain_id = chain_id
@@ -46,6 +46,7 @@ class CosmosClient:
         self._session_instance = None
         self._min_request_interval = 1.0  # Minimum seconds between requests
         self._last_request_time = 0
+        self._fallback_url = fallback_url  # Store fallback URL if available
         
         # Log initialization details
         logger.info(f"Initializing CosmosClient with:")
@@ -53,6 +54,8 @@ class CosmosClient:
         logger.info(f"  Chain ID: {chain_id}")
         logger.info(f"  Explorer URL: {explorer_url}")
         logger.info(f"  Explorer Type: {explorer_type}")
+        if fallback_url:
+            logger.info(f"  Fallback URL: {fallback_url}")
         
         # Derive the Tendermint RPC URL from the base URL
         # Convert something like https://rest.cosmos.directory/cosmoshub to https://rpc.cosmos.directory/cosmoshub
@@ -162,140 +165,53 @@ class CosmosClient:
         proposals = []
         session = await self._session()
         
-        # First try the v1 endpoint which is used by newer chains like Osmosis
-        v1_url = f"{self.base_url}/cosmos/gov/v1/proposals?proposal_status=PROPOSAL_STATUS_VOTING_PERIOD"
-        logger.info(f"Trying v1 endpoint first: {v1_url}")
-        logger.info(f"Full v1 URL: {v1_url}")
+        # Helper function to try both v1 and v1beta1 endpoints
+        async def try_endpoints(base_url: str) -> List[CosmosProposal]:
+            # First try the v1 endpoint
+            v1_url = f"{base_url}/cosmos/gov/v1/proposals?proposal_status=PROPOSAL_STATUS_VOTING_PERIOD"
+            logger.info(f"Trying v1 endpoint: {v1_url}")
+            
+            try:
+                async with session.get(v1_url) as v1_response:
+                    if v1_response.status == 200:
+                        data = await v1_response.json()
+                        if "proposals" in data:
+                            return [self._parse_proposal(p) for p in data["proposals"]]
+                    elif v1_response.status == 404:
+                        logger.info("v1 endpoint not found, falling back to v1beta1")
+                    else:
+                        error_text = await v1_response.text()
+                        logger.error(f"Error from v1 endpoint: {v1_response.status} - {error_text}")
+            except Exception as e:
+                logger.error(f"Error trying v1 endpoint: {e}")
+            
+            # Try the v1beta1 endpoint
+            v1beta1_url = f"{base_url}/cosmos/gov/v1beta1/proposals?proposal_status=2"  # 2 = VOTING_PERIOD
+            logger.info(f"Trying v1beta1 endpoint: {v1beta1_url}")
+            
+            try:
+                async with session.get(v1beta1_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if "proposals" in data:
+                            return [self._parse_proposal(p) for p in data["proposals"]]
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Failed to fetch proposals from v1beta1: {response.status} - {error_text}")
+            except Exception as e:
+                logger.error(f"Error fetching proposals from v1beta1: {e}")
+            
+            return []
         
-        v1_proposals = []
-        try:
-            async with session.get(v1_url) as v1_response:
-                if v1_response.status == 200:
-                    data = await v1_response.json()
-                    if "proposals" in data:
-                        # Process v1 proposals
-                        for proposal in data["proposals"]:
-                            try:
-                                proposal_id = proposal.get("id", "")
-                                if not proposal_id:
-                                    # Try to get from proposal_id field
-                                    proposal_id = str(proposal.get("proposal_id", ""))
-                                
-                                if not proposal_id:
-                                    continue
-                                    
-                                # Check if title exists in messages
-                                title = "Proposal " + str(proposal_id)
-                                description = ""
-                                
-                                # Try to extract title from metadata or messages
-                                if "metadata" in proposal and proposal["metadata"]:
-                                    try:
-                                        metadata_json = json.loads(proposal["metadata"])
-                                        if "title" in metadata_json:
-                                            title = metadata_json["title"]
-                                        if "summary" in metadata_json:
-                                            description = metadata_json["summary"]
-                                    except:
-                                        pass
-                                
-                                # Check messages for title/description as backup
-                                if "messages" in proposal and proposal["messages"]:
-                                    for message in proposal["messages"]:
-                                        if "content" in message and message["content"]:
-                                            content = message["content"]
-                                            if "title" in content:
-                                                title = content["title"]
-                                            if "description" in content:
-                                                description = content["description"]
-                                
-                                # Create and add the proposal
-                                v1_proposals.append(
-                                    CosmosProposal(
-                                        id=proposal_id,
-                                        title=title,
-                                        description=description,
-                                        status="PROPOSAL_STATUS_VOTING_PERIOD",
-                                        voting_start_time=proposal.get("voting_start_time", ""),
-                                        voting_end_time=proposal.get("voting_end_time", ""),
-                                        proposal_url=self.get_proposal_url(proposal_id),
-                                        final_tally_result=None
-                                    )
-                                )
-                                logger.info(f"Found active proposal {proposal_id} in voting period using v1 endpoint")
-                            except Exception as e:
-                                logger.error(f"Error processing v1 proposal: {e}")
-                        
-                        logger.info(f"Successfully processed {len(v1_proposals)} proposals from v1 endpoint")
-                elif v1_response.status == 404:
-                    # If v1 endpoint returns 404, the chain might not support v1 yet
-                    logger.info("v1 endpoint not found, falling back to v1beta1")
-                else:
-                    # For other errors, log and try v1beta1
-                    error_text = await v1_response.text()
-                    logger.error(f"Error from v1 endpoint: {v1_response.status} - {error_text}")
-        except Exception as e:
-            logger.error(f"Error trying v1 endpoint: {e}")
+        # First try with the main base URL
+        proposals = await try_endpoints(self.base_url)
         
-        # Try the v1beta1 endpoint
-        url = f"{self.base_url}/cosmos/gov/v1beta1/proposals?proposal_status=2"  # 2 = VOTING_PERIOD
-        logger.info(f"Trying v1beta1 endpoint: {url}")
-        logger.info(f"Full v1beta1 URL: {url}")
+        # If no proposals found and we have a fallback URL, try that
+        if not proposals and self._fallback_url:
+            logger.info(f"No proposals found with main URL, trying fallback URL: {self._fallback_url}")
+            proposals = await try_endpoints(self._fallback_url)
         
-        try:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Failed to fetch proposals from v1beta1: {response.status} - {error_text}")
-                    logger.error(f"Request URL: {url}")
-                    logger.error(f"Response headers: {response.headers}")
-                    return v1_proposals  # Return whatever we got from v1 endpoint
-                
-                data = await response.json()
-                
-                if "proposals" not in data:
-                    logger.error(f"Unexpected response format from v1beta1: {data}")
-                    return v1_proposals  # Return whatever we got from v1 endpoint
-                
-                # Process only proposals in voting period (we should only get these due to the filter)
-                for proposal in data["proposals"]:
-                    try:
-                        proposal_id = proposal.get("proposal_id")
-                        status = proposal.get("status")
-                        
-                        # Verify this is actually a voting period proposal
-                        if status != "PROPOSAL_STATUS_VOTING_PERIOD":
-                            continue
-                        
-                        # Skip if we already have this proposal from v1 endpoint
-                        if any(p.id == proposal_id for p in v1_proposals):
-                            logger.info(f"Skipping proposal {proposal_id} as it was already found in v1 endpoint")
-                            continue
-                        
-                        proposals.append(
-                            CosmosProposal(
-                                id=proposal_id,
-                                title="Proposal " + str(proposal_id),  # Simple title with ID
-                                description="",
-                                status=status,
-                                voting_start_time=proposal.get("voting_start_time", ""),
-                                voting_end_time=proposal.get("voting_end_time", ""),
-                                proposal_url=self.get_proposal_url(proposal_id),
-                                final_tally_result=proposal.get("final_tally_result")
-                            )
-                        )
-                        logger.info(f"Found active proposal {proposal_id} in voting period using v1beta1 endpoint")
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing v1beta1 proposal: {e}")
-                
-                # Combine v1 and v1beta1 proposals
-                all_proposals = v1_proposals + proposals
-                logger.info(f"Combined {len(v1_proposals)} v1 proposals with {len(proposals)} v1beta1 proposals")
-                return all_proposals
-        except Exception as e:
-            logger.error(f"Error fetching proposals from v1beta1: {e}")
-            return v1_proposals  # Return whatever we got from v1 endpoint
+        return proposals
     
     async def _fetch_mintscan_proposal_details(self, proposal_id: str) -> tuple[str, str]:
         """Fetch proposal details directly from Mintscan API."""
@@ -424,3 +340,80 @@ class CosmosClient:
         # This could be implemented to check specific proposals we previously alerted about
         # For now, returning empty list as implementation would depend on how we track previously alerted proposals
         return []
+
+    def _parse_proposal(self, proposal: Dict[str, Any]) -> CosmosProposal:
+        """Parse a proposal from either v1 or v1beta1 format."""
+        try:
+            # Handle v1 format
+            if "id" in proposal:
+                proposal_id = str(proposal.get("id", ""))
+                if not proposal_id:
+                    proposal_id = str(proposal.get("proposal_id", ""))
+                
+                title = "Proposal " + proposal_id
+                description = ""
+                
+                # Try to extract title from metadata
+                if "metadata" in proposal and proposal["metadata"]:
+                    try:
+                        metadata_json = json.loads(proposal["metadata"])
+                        if "title" in metadata_json:
+                            title = metadata_json["title"]
+                        if "summary" in metadata_json:
+                            description = metadata_json["summary"]
+                    except:
+                        pass
+                
+                # Check messages for title/description as backup
+                if "messages" in proposal and proposal["messages"]:
+                    for message in proposal["messages"]:
+                        if "content" in message and message["content"]:
+                            content = message["content"]
+                            if "title" in content:
+                                title = content["title"]
+                            if "description" in content:
+                                description = content["description"]
+                
+                return CosmosProposal(
+                    id=proposal_id,
+                    title=title,
+                    description=description,
+                    status=proposal.get("status", "PROPOSAL_STATUS_VOTING_PERIOD"),
+                    voting_start_time=proposal.get("voting_start_time", ""),
+                    voting_end_time=proposal.get("voting_end_time", ""),
+                    proposal_url=self.get_proposal_url(proposal_id),
+                    final_tally_result=proposal.get("final_tally_result")
+                )
+            
+            # Handle v1beta1 format
+            elif "proposal_id" in proposal:
+                proposal_id = str(proposal["proposal_id"])
+                title = "Proposal " + proposal_id
+                description = ""
+                
+                # Try to extract title from content
+                if "content" in proposal and proposal["content"]:
+                    content = proposal["content"]
+                    if "title" in content:
+                        title = content["title"]
+                    if "description" in content:
+                        description = content["description"]
+                
+                return CosmosProposal(
+                    id=proposal_id,
+                    title=title,
+                    description=description,
+                    status=proposal.get("status", "PROPOSAL_STATUS_VOTING_PERIOD"),
+                    voting_start_time=proposal.get("voting_start_time", ""),
+                    voting_end_time=proposal.get("voting_end_time", ""),
+                    proposal_url=self.get_proposal_url(proposal_id),
+                    final_tally_result=proposal.get("final_tally_result")
+                )
+            
+            else:
+                logger.error(f"Unexpected proposal format: {proposal}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error parsing proposal: {e}")
+            return None

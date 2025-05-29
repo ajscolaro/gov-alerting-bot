@@ -68,7 +68,8 @@ To add a new platform:
    ```
 4. Create necessary data files:
    - `data/proposal_state.json`
-   - `data/watchlist.json`
+   - `data/tally_watchlist.json`
+   - `data/cosmos_watchlist.json`
 5. Set up environment variables in `.env`
 
 ## Testing

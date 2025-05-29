@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
-from src.common.alerts.base import BaseAlertHandler, AlertConfig
-from src.integrations.cosmos.client import CosmosProposal
+from ...common.alerts.base import BaseAlertHandler, AlertConfig
+from .client import CosmosProposal
 
 class CosmosAlertHandler(BaseAlertHandler):
     """Handler for Cosmos-specific alerts."""
@@ -16,9 +16,9 @@ class CosmosAlertHandler(BaseAlertHandler):
         
         # Determine title based on alert type
         if alert_type == "proposal_voting":
-            title = f"*{network_name} Proposal Active*"
+            title = f"*{network_name} Onchain Proposal Active*"
         else:  # proposal_ended
-            title = f"*{network_name} Proposal Ended*"
+            title = f"*{network_name} Onchain Proposal Ended*"
         
         # Proposal "title" is just the ID for Cosmos
         proposal_title = f"Proposal {proposal.id}"
@@ -27,33 +27,44 @@ class CosmosAlertHandler(BaseAlertHandler):
         explorer_type = data.get("explorer_type", "mintscan")
         explorer_name = data.get("explorer_name", "Mintscan")
         
-        # Standardized message format
+        # Standardized message format with larger title
         message = {
             "text": f"{title}\n{proposal_title}",  # For notifications
             "blocks": [
                 {
-                    "type": "section",
+                    "type": "header",
                     "text": {
-                        "type": "mrkdwn",
-                        "text": f"{title}\n{proposal_title}"
+                        "type": "plain_text",
+                        "text": title.replace("*", ""),  # Remove markdown as header is already prominent
+                        "emoji": True
                     }
                 },
                 {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": f"View on {explorer_name}",
-                                "emoji": True
-                            },
-                            "url": proposal.proposal_url
-                        }
-                    ]
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": proposal_title
+                    }
                 }
             ]
         }
+        
+        # Only add button if we have a valid proposal URL
+        if proposal.proposal_url:
+            message["blocks"].append({
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View Proposal",
+                            "emoji": True
+                        },
+                        "url": proposal.proposal_url
+                    }
+                ]
+            })
         
         return message
     

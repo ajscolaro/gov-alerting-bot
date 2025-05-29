@@ -16,15 +16,19 @@ A Python bot that monitors governance proposals from Tally and Cosmos SDK platfo
 - Rate-limited API calls to respect platform restrictions
 - Configurable polling intervals
 - Comprehensive error handling and logging
-- Unified state tracking across different platforms
+- Modular design allowing independent monitoring of each platform
 
 ## Project Structure
 
 ```
 .
 ├── data/
-│   ├── proposal_state.json    # Unified state tracking for all platforms
-│   └── watchlist.json         # Configuration for platforms and networks to monitor
+│   ├── watchlists/              # Configuration for projects to monitor
+│   │   ├── tally_watchlist.json    # Tally projects configuration
+│   │   └── cosmos_watchlist.json   # Cosmos networks configuration
+│   └── proposal_tracking/       # State tracking for proposals
+│       ├── tally_proposal_state.json    # Tally proposals state
+│       └── cosmos_proposal_state.json   # Cosmos proposals state
 ├── src/
 │   ├── common/
 │   │   ├── alerts/            # Common alert handling code
@@ -42,7 +46,11 @@ A Python bot that monitors governance proposals from Tally and Cosmos SDK platfo
 │   │       ├── client.py     # API client for Tally
 │   │       ├── alerts.py     # Alert formatting for Tally
 │   │       └── __init__.py
-│   ├── monitor.py            # Main monitoring script
+│   ├── monitor/              # Monitoring scripts
+│   │   ├── monitor_tally.py  # Tally monitoring script
+│   │   ├── monitor_cosmos.py # Cosmos monitoring script
+│   │   └── __init__.py
+│   ├── monitor.py            # Main monitoring script (runs all monitors)
 │   └── __init__.py
 ├── .env                    # Environment configuration
 ├── requirements.txt        # Production dependencies
@@ -67,61 +75,122 @@ pip install -r requirements.txt
 SLACK_BOT_TOKEN=xoxb-your-token
 SLACK_CHANNEL=your-channel-id
 TALLY_API_KEY=your-tally-api-key
-CHECK_INTERVAL=60  # Tally polling interval in seconds
-COSMOS_CHECK_INTERVAL=300  # Cosmos polling interval in seconds
+CHECK_INTERVAL=60  # Polling interval in seconds
 ```
 
 4. Set up data files:
-   - Create a `data` directory in the project root
-   - Create `data/proposal_state.json` with an empty object:
-     ```json
-     {
-       "tally": {},
-       "cosmos": {}
-     }
+   - Create the required directories:
+     ```bash
+     mkdir -p data/watchlists data/proposal_tracking
      ```
-   - Create `data/watchlist.json` following the configuration guide below
+   - Create empty state files:
+     ```json
+     # data/proposal_tracking/tally_proposal_state.json
+     {}
+     ```
+     ```json
+     # data/proposal_tracking/cosmos_proposal_state.json
+     {}
+     ```
+   - Create watchlist files following the configuration guide below
 
-5. Run the monitoring script:
+5. Run the monitoring scripts:
 ```bash
+# Run all monitors
 python src/monitor.py
+
+# Run specific monitors
+python src/monitor.py --monitors tally
+python src/monitor.py --monitors cosmos
+
+# Run individual monitors directly
+python src/monitor/monitor_tally.py
+python src/monitor/monitor_cosmos.py
 ```
+
+## Important Notes
+
+### Python Path and Imports
+The project uses relative imports and automatically adds the project root to the Python path. This allows running scripts from any directory while maintaining proper module resolution. The path is added in each script using:
+```python
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+```
+
+### State Management
+- Each platform (Tally and Cosmos) maintains its own state file
+- State files are automatically created if they don't exist
+- Proposals are tracked with unique identifiers combining network/project ID and proposal ID
+- Thread context is preserved for all status updates
+- Proposals are automatically removed from tracking after reaching final states
+
+### Error Handling and Logging
+- Comprehensive error handling at multiple levels
+- Detailed logging with timestamps and log levels
+- Failed alerts are logged but don't stop the monitoring process
+- Automatic retry with backoff for network errors
+- State files are preserved even if the bot crashes
+- 60-second timeouts for RPC calls (including fallback attempts)
+- 30-second timeouts for Slack API calls
+- Graceful handling of RPC endpoint failures
+
+### Rate Limiting
+- Tally API: 1 request per 1 second
+- Cosmos REST APIs: 1 second intervals between requests
+- Configurable polling intervals via environment variables
+- Automatic waiting between requests to respect rate limits
+
+### Cosmos Integration Specifics
+- The Cosmos monitor automatically handles both v1 and v1beta1 API versions
+- If a v1 endpoint returns 501 (Not Implemented), it falls back to v1beta1
+- Some Cosmos chains may only support v1beta1 endpoints
+- RPC endpoints may occasionally be slow or unresponsive
+- Consider using fallback RPCs for chains with reliability issues
+- When using a fallback RPC, both v1 and v1beta1 endpoints are tried on the fallback URL
+- The monitor will only skip a chain if both endpoints fail on both primary and fallback URLs
+- Each RPC attempt (primary and fallback) has up to 60 seconds to complete
+- SSL errors may appear in logs during timeouts but are handled gracefully
 
 ## Data Files
 
-The bot uses two JSON files for state management and configuration:
+The bot uses separate JSON files for state management and configuration:
 
-### proposal_state.json
+### State Files
 
-This file tracks the state of all monitored proposals. It's automatically created and managed by the bot. The initial structure should be:
+Each platform has its own state file that tracks the proposals being monitored:
 
-```json
-{
-  "tally": {},
-  "cosmos": {}
-}
-```
+- `data/proposal_tracking/tally_proposal_state.json`: Tracks Tally proposals
+- `data/proposal_tracking/cosmos_proposal_state.json`: Tracks Cosmos proposals
 
-The bot will automatically populate this file as it monitors proposals. Each proposal's state includes:
+Each proposal's state includes:
 - Current status
 - Thread timestamp for Slack messages
 - Alert status
 
-### watchlist.json
+Example state file structure:
+```json
+{
+  "proposal_id": {
+    "status": "active",
+    "thread_ts": "1234567890.123456",
+    "alerted": true
+  }
+}
+```
 
-This file defines which projects and networks to monitor. Here's the structure for each supported platform:
+### Watchlist Files
 
-### Tally Projects
+Each platform has its own watchlist file that defines which projects and networks to monitor:
+
+### Tally Projects (data/watchlists/tally_watchlist.json)
 
 ```json
 {
-  "tally": [
+  "projects": [
     {
       "name": "Example Protocol",
-      "platform_specific_id": "example-protocol",
       "description": "Example Protocol Governance",
+      "intel_label": "app",
       "metadata": {
-        "type": "protocol",
         "chain": "ethereum",
         "governor_address": "0x1234...",
         "chain_id": "eip155:1",
@@ -135,26 +204,29 @@ This file defines which projects and networks to monitor. Here's the structure f
 
 Required fields for Tally projects:
 - `name`: Display name for the project
-- `platform_specific_id`: Unique identifier
+- `description`: Brief description of the project
+- `intel_label`: Category label (e.g., "app" for applications, "net" for networks)
+- `metadata.chain`: Chain name (e.g., "ethereum", "arbitrum", "base")
 - `metadata.governor_address`: Tally governor contract address
 - `metadata.chain_id`: Chain ID in eip155 format
 - `metadata.token_address`: Governance token address
 - `metadata.tally_url`: Tally governance page URL
 
-### Cosmos Networks
+### Cosmos Networks (data/watchlists/cosmos_watchlist.json)
 
 ```json
 {
-  "cosmos": [
+  "projects": [
     {
       "name": "Example Network",
-      "platform_specific_id": "example-network",
       "description": "Example Network Governance",
       "metadata": {
         "type": "network",
         "chain_id": "example-1",
         "rpc_url": "https://rest.cosmos.directory/example",
-        "explorer_url": "https://www.mintscan.io/example"
+        "explorer_url": "https://www.mintscan.io/example",
+        "explorer_type": "mintscan",  # Optional: "mintscan" or "pingpub" for URL formatting
+        "fallback_rpc_url": "https://alternative-rpc.example"  # Optional: Fallback RPC URL
       }
     }
   ]
@@ -163,16 +235,18 @@ Required fields for Tally projects:
 
 Required fields for Cosmos networks:
 - `name`: Display name for the network
-- `platform_specific_id`: Unique identifier (typically the network name)
 - `metadata.chain_id`: Chain ID (e.g., "cosmoshub-4")
 - `metadata.rpc_url`: REST API URL
 - `metadata.explorer_url`: Block explorer URL
 
 Optional fields for Cosmos networks:
+- `metadata.fallback_rpc_url`: Fallback REST API URL to use if the primary RPC is unavailable or slow
+  - Recommended for chains with known reliability issues
+  - Should be from a different provider than the primary RPC
+  - Will be used automatically if primary RPC fails
 - `metadata.explorer_type`: Type of explorer to use (default: "mintscan")
   - "mintscan": For networks supported by Mintscan
   - "pingpub": For networks using Ping.pub explorer
-- `metadata.explorer_name`: Display name for the explorer (default: "Mintscan")
 
 ## Alert Types
 
@@ -209,18 +283,38 @@ Optional fields for Cosmos networks:
 The bot maintains thread context for each proposal:
 
 1. Initial alerts create a new message
-2. The Slack message timestamp is stored in `proposal_state.json`
+2. The Slack message timestamp is stored in the platform-specific state file
 3. Status updates and ended alerts are sent as thread replies
 4. Thread replies are broadcast to the channel with `reply_broadcast=true`
 5. Proposals are removed from state tracking after their final status alert
 
-## API Rate Limiting
+## Implementation Details
 
-The bot implements rate limiting to respect platform API restrictions:
+### State Management
+- Each platform uses a separate state file to track proposals
+- State files are automatically created if they don't exist
+- State is persisted between bot restarts
+- Proposals are removed from tracking after reaching final states
+
+### Error Handling
+- Comprehensive error handling at multiple levels:
+  - Individual proposal processing
+  - Network/API calls
+  - State file operations
+- Failed alerts are logged but don't stop the monitoring process
+- Automatic retry with backoff for network errors
+
+### Rate Limiting
 - Tally API: 1 request per 1 second
-- Cosmos REST APIs: No specific limit enforced, but 1 second intervals between requests
-- Automatic waiting between requests
+- Cosmos REST APIs: 1 second intervals between requests
 - Configurable polling intervals via environment variables
+- Automatic waiting between requests to respect rate limits
+
+### Monitoring Modes
+- Can run individual monitors or all monitors together
+- Command-line arguments to select which monitors to run
+- Independent state tracking for each platform
+- Parallel execution of monitors when running multiple
 
 ## Contributing
 

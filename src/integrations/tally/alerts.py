@@ -1,6 +1,9 @@
+import logging
 from typing import Dict, List
-from src.common.alerts.base import BaseAlertHandler, AlertConfig
-from src.integrations.tally.client import TallyProposal
+from ...common.alerts.base import BaseAlertHandler, AlertConfig
+from .client import TallyProposal
+
+logger = logging.getLogger(__name__)
 
 class TallyAlertHandler(BaseAlertHandler):
     """Handler for Tally-specific alerts."""
@@ -14,13 +17,16 @@ class TallyAlertHandler(BaseAlertHandler):
         project_name = data["project_name"]
         proposal: TallyProposal = data["proposal"]
         
+        # Log alert formatting
+        logger.info(f"Formatting {alert_type} alert for {project_name} proposal {proposal.id}")
+        
         # Determine alert title based on type
         if alert_type == "proposal_active":
-            title = f"*{project_name} Proposal Active*"
+            title = f"*{project_name} Onchain Proposal Active*"
         elif alert_type == "proposal_update":
-            title = f"*{project_name} Proposal Update*"
+            title = f"*{project_name} Onchain Proposal Update*"
         else:  # proposal_ended
-            title = f"*{project_name} Proposal Ended*"
+            title = f"*{project_name} Onchain Proposal Ended*"
         
         # Base message structure with standardized format
         message = {
@@ -30,41 +36,58 @@ class TallyAlertHandler(BaseAlertHandler):
             "text": f"{title}\n{proposal.title}",  # For notifications
             "blocks": [
                 {
-                    "type": "section",
+                    "type": "header",
                     "text": {
-                        "type": "mrkdwn",
-                        "text": f"{title}\n{proposal.title}"
+                        "type": "plain_text",
+                        "text": title.replace("*", ""),  # Remove markdown as header is already prominent
+                        "emoji": True
                     }
                 },
                 {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "View on Tally",
-                                "emoji": True
-                            },
-                            "url": proposal.proposal_url
-                        }
-                    ]
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": proposal.title
+                    }
                 }
             ]
         }
+        
+        # Only add button if we have a valid proposal URL
+        if proposal.proposal_url:
+            message["blocks"].append({
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View Proposal",
+                            "emoji": True
+                        },
+                        "url": proposal.proposal_url
+                    }
+                ]
+            })
         
         return message
     
     def should_alert(self, proposal: TallyProposal, previous_status: str = None) -> bool:
         """Determine if an alert should be sent."""
+        # Log the decision making process
+        logger.info(f"Checking if should alert for proposal {proposal.id} (status: {proposal.status}, previous: {previous_status})")
+        
         # Only send new alerts for active proposals
         if not previous_status:
-            return proposal.status == "active"
+            should_alert = proposal.status == "active"
+            logger.info(f"New proposal check: {should_alert}")
+            return should_alert
             
         # For existing proposals, only send updates if we've already sent an alert
         if previous_status:
             # Status change to extended
             if previous_status == "active" and proposal.status == "extended":
+                logger.info("Status changed to extended")
                 return True
                 
             # Final status change
@@ -75,6 +98,8 @@ class TallyAlertHandler(BaseAlertHandler):
             }
             
             if proposal.status in final_statuses:
+                logger.info(f"Proposal reached final status: {proposal.status}")
                 return True
         
+        logger.info("No alert conditions met")
         return False 

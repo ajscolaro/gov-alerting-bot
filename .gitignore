@@ -1,3 +1,6 @@
+# Environment variables
+.env
+
 # Python
 __pycache__/
 *.py[cod]
@@ -23,7 +26,6 @@ wheels/
 # Virtual Environment
 venv/
 ENV/
-env/
 
 # IDE
 .idea/
@@ -31,16 +33,24 @@ env/
 *.swp
 *.swo
 
-# Environment variables
-.env
+# Data files
+data/watchlists/
+data/proposal_tracking/
 
 # Logs
 *.log
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Data files
 data/proposal_state.json
-data/watchlist.json 
+data/watchlist.json
+data/tally_watchlist.json
+data/cosmos_watchlist.json 
