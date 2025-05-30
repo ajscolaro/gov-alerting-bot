@@ -86,14 +86,21 @@ class CosmosClient:
             await asyncio.sleep(self._min_request_interval - time_since_last_request)
         self._last_request_time = time.time()
     
-    async def get_proposals(self) -> List[CosmosProposal]:
-        """Fetch active governance proposals."""
+    async def get_proposals(self, tracked_proposals: Optional[Dict[str, Dict]] = None) -> List[CosmosProposal]:
+        """Fetch active governance proposals and check tracked proposals.
+        
+        Args:
+            tracked_proposals: Optional dictionary of tracked proposals from state file.
+                             If provided, will check these proposals for status changes.
+        """
         try:
             # Fetch only active proposals from the LCD API
             proposals = await self._fetch_proposals_from_lcd()
             
             # Check proposals that were previously alerted but might have ended
-            ended_proposals = await self._check_ended_proposals()
+            ended_proposals = []
+            if tracked_proposals:
+                ended_proposals = await self._check_ended_proposals(tracked_proposals)
             
             # Combine the active and ended proposals
             all_proposals = proposals + ended_proposals
@@ -167,7 +174,9 @@ class CosmosClient:
         
         # Helper function to try both v1 and v1beta1 endpoints
         async def try_endpoints(base_url: str) -> List[CosmosProposal]:
-            # First try the v1 endpoint
+            all_proposals = []
+            
+            # First try the v1 endpoint for voting period proposals
             v1_url = f"{base_url}/cosmos/gov/v1/proposals?proposal_status=PROPOSAL_STATUS_VOTING_PERIOD"
             logger.info(f"Trying v1 endpoint: {v1_url}")
             
@@ -176,7 +185,7 @@ class CosmosClient:
                     if v1_response.status == 200:
                         data = await v1_response.json()
                         if "proposals" in data:
-                            return [self._parse_proposal(p) for p in data["proposals"]]
+                            all_proposals.extend([self._parse_proposal(p) for p in data["proposals"]])
                     elif v1_response.status == 404:
                         logger.info("v1 endpoint not found, falling back to v1beta1")
                     else:
@@ -185,7 +194,7 @@ class CosmosClient:
             except Exception as e:
                 logger.error(f"Error trying v1 endpoint: {e}")
             
-            # Try the v1beta1 endpoint
+            # Try the v1beta1 endpoint for voting period proposals
             v1beta1_url = f"{base_url}/cosmos/gov/v1beta1/proposals?proposal_status=2"  # 2 = VOTING_PERIOD
             logger.info(f"Trying v1beta1 endpoint: {v1beta1_url}")
             
@@ -194,14 +203,14 @@ class CosmosClient:
                     if response.status == 200:
                         data = await response.json()
                         if "proposals" in data:
-                            return [self._parse_proposal(p) for p in data["proposals"]]
+                            all_proposals.extend([self._parse_proposal(p) for p in data["proposals"]])
                     else:
                         error_text = await response.text()
                         logger.error(f"Failed to fetch proposals from v1beta1: {response.status} - {error_text}")
             except Exception as e:
                 logger.error(f"Error fetching proposals from v1beta1: {e}")
             
-            return []
+            return all_proposals
         
         # First try with the main base URL
         proposals = await try_endpoints(self.base_url)
@@ -335,11 +344,21 @@ class CosmosClient:
             await self._session_instance.close()
             self._session_instance = None
 
-    async def _check_ended_proposals(self) -> List[CosmosProposal]:
-        """Check previously alerted proposals that may have ended."""
-        # This could be implemented to check specific proposals we previously alerted about
-        # For now, returning empty list as implementation would depend on how we track previously alerted proposals
-        return []
+    async def _check_ended_proposals(self, tracked_proposals: Dict[str, Dict]) -> List[CosmosProposal]:
+        """Check previously tracked proposals that may have ended."""
+        ended_proposals = []
+        
+        for proposal_key, proposal_data in tracked_proposals.items():
+            # Extract proposal ID from the key (format: "Network:proposal_id")
+            proposal_id = proposal_key.split(":")[-1]
+            
+            # Only check proposals that were in voting period
+            if proposal_data["status"] == "PROPOSAL_STATUS_VOTING_PERIOD":
+                proposal = await self.get_proposal_by_id(proposal_id)
+                if proposal and proposal.has_ended():
+                    ended_proposals.append(proposal)
+        
+        return ended_proposals
 
     def _parse_proposal(self, proposal: Dict[str, Any]) -> CosmosProposal:
         """Parse a proposal from either v1 or v1beta1 format."""
@@ -417,3 +436,55 @@ class CosmosClient:
         except Exception as e:
             logger.error(f"Error parsing proposal: {e}")
             return None
+
+    async def get_proposal_by_id(self, proposal_id: str) -> Optional[CosmosProposal]:
+        """Fetch a specific proposal by ID."""
+        session = await self._session()
+        
+        # Try v1 endpoint first
+        v1_url = f"{self.base_url}/cosmos/gov/v1/proposals/{proposal_id}"
+        try:
+            async with session.get(v1_url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if "proposal" in data:
+                        return self._parse_proposal(data["proposal"])
+        except Exception as e:
+            logger.error(f"Error fetching proposal {proposal_id} from v1: {e}")
+        
+        # Try v1beta1 endpoint
+        v1beta1_url = f"{self.base_url}/cosmos/gov/v1beta1/proposals/{proposal_id}"
+        try:
+            async with session.get(v1beta1_url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if "proposal" in data:
+                        return self._parse_proposal(data["proposal"])
+        except Exception as e:
+            logger.error(f"Error fetching proposal {proposal_id} from v1beta1: {e}")
+        
+        # If both failed and we have a fallback URL, try that
+        if self._fallback_url:
+            # Try v1 on fallback
+            v1_url = f"{self._fallback_url}/cosmos/gov/v1/proposals/{proposal_id}"
+            try:
+                async with session.get(v1_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if "proposal" in data:
+                            return self._parse_proposal(data["proposal"])
+            except Exception as e:
+                logger.error(f"Error fetching proposal {proposal_id} from fallback v1: {e}")
+            
+            # Try v1beta1 on fallback
+            v1beta1_url = f"{self._fallback_url}/cosmos/gov/v1beta1/proposals/{proposal_id}"
+            try:
+                async with session.get(v1beta1_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if "proposal" in data:
+                            return self._parse_proposal(data["proposal"])
+            except Exception as e:
+                logger.error(f"Error fetching proposal {proposal_id} from fallback v1beta1: {e}")
+        
+        return None
