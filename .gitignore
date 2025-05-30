@@ -36,6 +36,7 @@ ENV/
 # Data files
 data/watchlists/
 data/proposal_tracking/
+data/test_proposal_tracking/
 
 # Logs
 *.log
