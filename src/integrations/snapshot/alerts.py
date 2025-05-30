@@ -23,13 +23,13 @@ class SnapshotAlertHandler(BaseAlertHandler):
         
         # Determine alert title based on type
         if alert_type == "proposal_active":
-            title = f"{project_name} Offchain Proposal Active"
+            title = f"{project_name} Snapshot Proposal Active"
             button_text = "View Proposal"
         elif alert_type == "proposal_ended":
-            title = f"{project_name} Offchain Proposal Ended"
+            title = f"{project_name} Snapshot Proposal Ended"
             button_text = "View Results"
         else:  # proposal_deleted
-            title = f"{project_name} Offchain Proposal Deleted"
+            title = f"{project_name} Snapshot Proposal Deleted"
             button_text = None
         
         # Use shared utility: header for title, context for description (smaller), divider, and actions for button
