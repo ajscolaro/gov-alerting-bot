@@ -169,11 +169,15 @@ async def process_snapshot_proposal_alert(
     alert_sender: SlackAlertSender = None,
     snapshot_url: str = None,
     thread_ts: Optional[str] = None
-) -> None:
-    """Process a Snapshot proposal alert."""
+) -> Optional[Dict]:
+    """Process a Snapshot proposal alert.
+    
+    Returns:
+        Optional[Dict]: The result from sending the alert, or None if no alert was sent.
+    """
     if not alert_handler or not alert_sender:
         logger.error("Missing required alert handler or sender")
-        return
+        return None
         
     try:
         # Determine alert type based on proposal state
@@ -209,6 +213,11 @@ async def process_snapshot_proposal_alert(
             result = await alert_sender.send_alert(alert_handler, message)
             
             if result["ok"]:
+                # Store thread timestamp for new proposals
+                if alert_type == "proposal_active":
+                    thread_ts = result["ts"]
+                    logger.info(f"Stored thread timestamp for new proposal: {thread_ts}")
+                
                 # If this is an ended or deleted proposal, send a follow-up message in the thread
                 if alert_type in ["proposal_ended", "proposal_deleted"] and thread_ts:
                     follow_up_message = {
@@ -218,12 +227,16 @@ async def process_snapshot_proposal_alert(
                     await alert_sender.send_alert(alert_handler, follow_up_message)
                     
                 logger.info(f"Sent {alert_type} alert for {project_name} proposal {proposal['id']}")
+                return result
             else:
                 logger.warning(f"Failed to send alert for {project_name} proposal {proposal['id']}")
+                return result
             
     except Exception as e:
         logger.error(f"Error processing alert for proposal {proposal['id']}: {str(e)}")
         raise
+        
+    return None
 
 async def check_proposals(
     client: SnapshotClient,
@@ -366,17 +379,17 @@ async def monitor_snapshot_proposals(slack_sender: Optional[SlackAlertSender] = 
                             
                             for proposal in proposals:
                                 current = tracker.get_proposal(proposal["id"], project_id=project["name"])
-                                await process_snapshot_proposal_alert(
+                                result = await process_snapshot_proposal_alert(
                                     proposal, project["name"], current["status"] if current else None, 
                                     alert_handler, slack_sender, project["metadata"]["snapshot_url"], current.get("thread_ts") if current else None
                                 )
                                 
                                 # Update proposal state with project ID
-                                if not current:
+                                if not current and result and result.get("ok"):
                                     tracker.update_proposal(
                                         proposal["id"], 
                                         proposal["state"], 
-                                        None, 
+                                        result["ts"], 
                                         True, 
                                         project_id=project["name"]
                                     )

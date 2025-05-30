@@ -216,25 +216,17 @@ python src/monitor/monitor_cosmos.py
 
 ### Snapshot Integration Specifics
 - The Snapshot monitor handles three proposal states: active, closed, and deleted
-- Proposals are tracked using a combination of project ID and proposal ID
+- Proposals are tracked using a combination of project ID and proposal ID (format: "ProjectName:proposalId")
 - The monitor checks for both new proposals and updates to existing ones
 - Deleted proposals are detected when they no longer exist in the API response
 - Thread responses are used for all status updates (ended/deleted) to maintain context
 - All thread responses are broadcast to the channel for visibility
 - Rate limiting is implemented with exponential backoff for API errors
 - State file is automatically cleaned up when proposals are removed
-
-### Thread Response Handling
-- All monitors use a consistent approach for thread responses
-- Thread context is maintained using the original message's timestamp
-- Thread responses are automatically broadcast to the channel
-- Missing thread context is handled gracefully with warning messages
-- Thread broadcast behavior is centralized in the `SlackAlertSender` class
-- Each monitor maintains its own thread context in its state file
-- Thread responses are used for:
-  - Cosmos: Status changes from voting period
-  - Tally: Status changes from active state
-  - Snapshot: Ended and deleted proposals
+- Thread timestamps are properly stored and maintained for all proposals
+- Duplicate alerts are prevented by checking proposal state before sending
+- Project-specific proposal tracking ensures no cross-project conflicts
+- State file format includes project name for better readability and debugging
 
 ### Recent Improvements
 1. **Thread Response Standardization**:
@@ -248,12 +240,17 @@ python src/monitor/monitor_cosmos.py
    - Improved state file management and cleanup
    - Added proper thread context for ended and deleted proposals
    - Enhanced error handling and logging
+   - Fixed duplicate alert issue by properly tracking thread timestamps
+   - Improved project-specific proposal tracking
+   - Better state file format with project names for readability
 
 3. **State Management**:
    - More robust state file handling
    - Better cleanup of ended/deleted proposals
    - Improved thread timestamp tracking
    - Consistent state file structure across monitors
+   - Project-specific proposal tracking to prevent conflicts
+   - Enhanced state file format with project names
 
 ## Data Files
 
