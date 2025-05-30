@@ -20,6 +20,26 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 - Comprehensive error handling and logging
 - Modular design allowing independent monitoring of each platform
 
+## Slack Alert Formatting
+
+All Slack alerts use a modern, consistent format:
+- **Title:** Displayed in a header block (large, prominent)
+- **Description/Body:** Displayed in a context block (smaller, lighter font)
+- **Divider:** Visually separates the content from actions
+- **Button:** Action button (e.g., "View Proposal") shown below the divider
+
+This ensures alerts are visually clear, with the most important information (the title) emphasized, and details shown in a less prominent style.
+
+Example Slack Block structure:
+```json
+[
+  { "type": "header", "text": { "type": "plain_text", "text": "Project Proposal Active", "emoji": true } },
+  { "type": "context", "elements": [ { "type": "mrkdwn", "text": "MIP 103 - Incentives Distribution on Unichain" } ] },
+  { "type": "divider" },
+  { "type": "actions", "elements": [ { "type": "button", "text": { "type": "plain_text", "text": "View Proposal", "emoji": true }, "url": "https://..." } ] }
+]
+```
+
 ## Project Structure
 
 ```
@@ -227,6 +247,8 @@ python src/monitor/monitor_cosmos.py
 - Duplicate alerts are prevented by checking proposal state before sending
 - Project-specific proposal tracking ensures no cross-project conflicts
 - State file format includes project name for better readability and debugging
+
+> **Note:** The Snapshot integration and its Slack formatting are currently only available in the `feat/snapshot-integration` branch and not yet merged into `main`.
 
 ### Recent Improvements
 1. **Thread Response Standardization**:

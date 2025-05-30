@@ -1,5 +1,5 @@
 from typing import Dict, List
-from ...common.alerts.base import BaseAlertHandler, AlertConfig
+from ...common.alerts.base import BaseAlertHandler, AlertConfig, build_slack_alert_blocks
 import logging
 from datetime import datetime
 
@@ -23,53 +23,26 @@ class SnapshotAlertHandler(BaseAlertHandler):
         
         # Determine alert title based on type
         if alert_type == "proposal_active":
-            title = f"*{project_name} Offchain Proposal Active*"
+            title = f"{project_name} Offchain Proposal Active"
+            button_text = "View Proposal"
         elif alert_type == "proposal_ended":
-            title = f"*{project_name} Offchain Proposal Ended*"
+            title = f"{project_name} Offchain Proposal Ended"
+            button_text = "View Results"
         else:  # proposal_deleted
-            title = f"*{project_name} Offchain Proposal Deleted*"
+            title = f"{project_name} Offchain Proposal Deleted"
+            button_text = None
         
-        # Base message structure with standardized format
+        # Use shared utility: header for title, context for description (smaller), divider, and actions for button
+        description = proposal["title"]
+        button_url = f"{snapshot_url}/proposal/{proposal['id']}" if button_text else None
+        
         message = {
             "unfurl_links": not self.config.disable_link_previews,
             "unfurl_media": False,
             "link_names": True,
-            "text": f"{title}\n{proposal['title']}",  # For notifications
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": title.replace("*", ""),  # Remove markdown as header is already prominent
-                        "emoji": True
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": proposal["title"]
-                    }
-                }
-            ]
+            "text": f"*{title}*\n{description}",
+            "blocks": build_slack_alert_blocks(title, description, button_text, button_url)
         }
-        
-        # Add button for active and ended proposals
-        if alert_type != "proposal_deleted":
-            message["blocks"].append({
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View Proposal" if alert_type == "proposal_active" else "View Results",
-                            "emoji": True
-                        },
-                        "url": f"{snapshot_url}/proposal/{proposal['id']}"
-                    }
-                ]
-            })
         
         # For non-active alerts, add thread context if available
         if alert_type != "proposal_active" and "thread_ts" in data:
