@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional
-from ...common.alerts.base import BaseAlertHandler, AlertConfig
+from ...common.alerts.base import BaseAlertHandler, AlertConfig, build_slack_alert_blocks
 from .client import CosmosProposal
 
 class CosmosAlertHandler(BaseAlertHandler):
@@ -16,56 +16,19 @@ class CosmosAlertHandler(BaseAlertHandler):
         
         # Determine title based on alert type
         if alert_type == "proposal_voting":
-            title = f"*{network_name} Onchain Proposal Active*"
+            title = f"{network_name} Onchain Proposal Active"
         else:  # proposal_ended
-            title = f"*{network_name} Onchain Proposal Ended*"
+            title = f"{network_name} Onchain Proposal Ended"
         
-        # Proposal "title" is just the ID for Cosmos
         proposal_title = f"Proposal {proposal.id}"
+        button_text = "View Proposal" if proposal.proposal_url else None
+        button_url = proposal.proposal_url if proposal.proposal_url else None
         
-        # Get explorer type and name from metadata if available
-        explorer_type = data.get("explorer_type", "mintscan")
-        explorer_name = data.get("explorer_name", "Mintscan")
-        
-        # Standardized message format with larger title
+        # Use shared utility: header for title, context for description (smaller), divider, and actions for button
         message = {
-            "text": f"{title}\n{proposal_title}",  # For notifications
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": title.replace("*", ""),  # Remove markdown as header is already prominent
-                        "emoji": True
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": proposal_title
-                    }
-                }
-            ]
+            "text": f"*{title}*\n{proposal_title}",
+            "blocks": build_slack_alert_blocks(title, proposal_title, button_text, button_url)
         }
-        
-        # Only add button if we have a valid proposal URL
-        if proposal.proposal_url:
-            message["blocks"].append({
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View Proposal",
-                            "emoji": True
-                        },
-                        "url": proposal.proposal_url
-                    }
-                ]
-            })
-        
         return message
     
     def should_alert(self, proposal: CosmosProposal, previous_status: str = None) -> bool:

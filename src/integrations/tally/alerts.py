@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, List
-from ...common.alerts.base import BaseAlertHandler, AlertConfig
+from ...common.alerts.base import BaseAlertHandler, AlertConfig, build_slack_alert_blocks
 from .client import TallyProposal
 
 logger = logging.getLogger(__name__)
@@ -22,54 +22,24 @@ class TallyAlertHandler(BaseAlertHandler):
         
         # Determine alert title based on type
         if alert_type == "proposal_active":
-            title = f"*{project_name} Onchain Proposal Active*"
+            title = f"{project_name} Onchain Proposal Active"
         elif alert_type == "proposal_update":
-            title = f"*{project_name} Onchain Proposal Update*"
+            title = f"{project_name} Onchain Proposal Update"
         else:  # proposal_ended
-            title = f"*{project_name} Onchain Proposal Ended*"
+            title = f"{project_name} Onchain Proposal Ended"
         
-        # Base message structure with standardized format
+        # Use shared utility: header for title, context for description (smaller), divider, and actions for button
+        description = proposal.title
+        button_text = "View Proposal" if proposal.proposal_url else None
+        button_url = proposal.proposal_url if proposal.proposal_url else None
+        
         message = {
             "unfurl_links": not self.config.disable_link_previews,
             "unfurl_media": False,
             "link_names": True,
-            "text": f"{title}\n{proposal.title}",  # For notifications
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": title.replace("*", ""),  # Remove markdown as header is already prominent
-                        "emoji": True
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": proposal.title
-                    }
-                }
-            ]
+            "text": f"*{title}*\n{description}",
+            "blocks": build_slack_alert_blocks(title, description, button_text, button_url)
         }
-        
-        # Only add button if we have a valid proposal URL
-        if proposal.proposal_url:
-            message["blocks"].append({
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View Proposal",
-                            "emoji": True
-                        },
-                        "url": proposal.proposal_url
-                    }
-                ]
-            })
-        
         return message
     
     def should_alert(self, proposal: TallyProposal, previous_status: str = None) -> bool:

@@ -57,3 +57,48 @@ class BaseAlertHandler(ABC):
         if self.config.alert_on_status_changes and previous_status and previous_status != proposal.status:
             return True
         return False 
+
+def build_slack_alert_blocks(title: str, description: str, button_text: str = None, button_url: str = None) -> list:
+    """
+    Build Slack blocks for alerts with a stylish, consistent format:
+    - Title as a header (prominent)
+    - Description/content as a context block (smaller, lighter)
+    - Divider
+    - Button (if provided)
+    """
+    blocks = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": title,
+                "emoji": True
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": description
+                }
+            ]
+        },
+        {"type": "divider"}
+    ]
+    if button_text and button_url:
+        blocks.append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": button_text,
+                        "emoji": True
+                    },
+                    "url": button_url
+                }
+            ]
+        })
+    return blocks 
