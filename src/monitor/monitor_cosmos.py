@@ -135,7 +135,6 @@ async def process_cosmos_proposal_alert(
         if alert_type != "proposal_voting":
             if current and current.get("thread_ts"):
                 message["thread_ts"] = current["thread_ts"]
-                message["reply_broadcast"] = True
                 logger.info(f"Sending {alert_type} as thread reply with ts: {current['thread_ts']}")
             else:
                 message["text"] = f"⚠️ Unable to find original message context. {message['text']}"

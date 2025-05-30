@@ -115,31 +115,25 @@ async def process_tally_proposal_alert(
     tracker: TallyProposalTracker
 ):
     """Process a Tally proposal alert."""
-    project_id = project["name"]
     previous_status = current["status"] if current else None
-    
-    # Log the processing details for debugging
-    logger.info(f"Processing proposal {proposal.id} for {project['name']}")
-    logger.info(f"Current status: {proposal.status}, Previous status: {previous_status}")
     
     if alert_handler.should_alert(proposal, previous_status):
         # Determine alert type
         if not previous_status:
             alert_type = "proposal_active"
-        elif previous_status == "active" and proposal.status == "extended":
-            alert_type = "proposal_update"
-        else:
+        elif previous_status == "active" and proposal.status != "active":
             alert_type = "proposal_ended"
+        else:
+            # Skip other status changes
+            return
         
         logger.info(f"Sending {alert_type} alert for {project['name']} proposal {proposal.id}")
         
-        # Prepare alert data with additional context
+        # Prepare alert data
         alert_data = {
             "project_name": project["name"],
-            "project_description": project.get("description", ""),
-            "intel_label": project.get("intel_label", "app"),
             "proposal": proposal,
-            "chain": project["metadata"]["chain"]
+            "tally_url": project["metadata"]["tally_url"]
         }
         
         # Format and send alert
@@ -149,7 +143,6 @@ async def process_tally_proposal_alert(
         if alert_type != "proposal_active":
             if current and current.get("thread_ts"):
                 message["thread_ts"] = current["thread_ts"]
-                message["reply_broadcast"] = True
                 logger.info(f"Sending {alert_type} as thread reply with ts: {current['thread_ts']}")
             else:
                 message["text"] = f"⚠️ Unable to find original message context. {message['text']}"
@@ -160,7 +153,7 @@ async def process_tally_proposal_alert(
         
         if result["ok"]:
             if alert_type == "proposal_active":
-                tracker.update_proposal(proposal.id, proposal.status, result["ts"], True, project_id=project_id)
+                tracker.update_proposal(proposal.id, proposal.status, result["ts"], True, project_id=project["name"])
                 logger.info(f"Stored thread timestamp for new proposal: {result['ts']}")
             elif alert_type == "proposal_ended":
                 final_statuses = {
@@ -170,19 +163,19 @@ async def process_tally_proposal_alert(
                 }
                 
                 if proposal.status.lower() in final_statuses:
-                    tracker.remove_proposal(proposal.id, project_id=project_id)
+                    tracker.remove_proposal(proposal.id, project_id=project["name"])
                     logger.info(f"Removed ended proposal from tracking: {proposal.id}")
                 else:
-                    tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True, project_id=project_id)
+                    tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True, project_id=project["name"])
                     logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
             else:
-                tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True, project_id=project_id)
+                tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), True, project_id=project["name"])
                 logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
         else:
-            tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project_id)
+            tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project["name"])
             logger.warning(f"Failed to send alert, updated status only: {proposal.status}")
     elif current and current.get("status") != proposal.status:
-        tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project_id)
+        tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project["name"])
         logger.info(f"Updated proposal status without alert: {proposal.status}")
 
 async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
