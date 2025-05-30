@@ -214,6 +214,47 @@ python src/monitor/monitor_cosmos.py
 - Each RPC attempt (primary and fallback) has up to 60 seconds to complete
 - SSL errors may appear in logs during timeouts but are handled gracefully
 
+### Snapshot Integration Specifics
+- The Snapshot monitor handles three proposal states: active, closed, and deleted
+- Proposals are tracked using a combination of project ID and proposal ID
+- The monitor checks for both new proposals and updates to existing ones
+- Deleted proposals are detected when they no longer exist in the API response
+- Thread responses are used for all status updates (ended/deleted) to maintain context
+- All thread responses are broadcast to the channel for visibility
+- Rate limiting is implemented with exponential backoff for API errors
+- State file is automatically cleaned up when proposals are removed
+
+### Thread Response Handling
+- All monitors use a consistent approach for thread responses
+- Thread context is maintained using the original message's timestamp
+- Thread responses are automatically broadcast to the channel
+- Missing thread context is handled gracefully with warning messages
+- Thread broadcast behavior is centralized in the `SlackAlertSender` class
+- Each monitor maintains its own thread context in its state file
+- Thread responses are used for:
+  - Cosmos: Status changes from voting period
+  - Tally: Status changes from active state
+  - Snapshot: Ended and deleted proposals
+
+### Recent Improvements
+1. **Thread Response Standardization**:
+   - Consistent thread handling across all monitors
+   - Centralized thread broadcast logic in `SlackAlertSender`
+   - Improved error handling for missing thread context
+   - Better logging of thread-related operations
+
+2. **Snapshot Monitor Enhancements**:
+   - Fixed proposal ID handling to correctly extract IDs from composite keys
+   - Improved state file management and cleanup
+   - Added proper thread context for ended and deleted proposals
+   - Enhanced error handling and logging
+
+3. **State Management**:
+   - More robust state file handling
+   - Better cleanup of ended/deleted proposals
+   - Improved thread timestamp tracking
+   - Consistent state file structure across monitors
+
 ## Data Files
 
 The bot uses separate JSON files for state management and configuration:
