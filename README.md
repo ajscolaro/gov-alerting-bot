@@ -252,6 +252,15 @@ python src/monitor/monitor_cosmos.py
    - Project-specific proposal tracking to prevent conflicts
    - Enhanced state file format with project names
 
+4. **Cosmos Monitor Optimizations**:
+   - Optimized proposal fetching to only check relevant proposals
+   - Added direct proposal ID lookups for tracked proposals
+   - Improved handling of ended proposals using state file
+   - Reduced API calls by only fetching voting period proposals
+   - Better error handling for RPC endpoint failures
+   - More efficient proposal status tracking
+   - Enhanced thread context preservation for status updates
+
 ## Data Files
 
 The bot uses separate JSON files for state management and configuration:

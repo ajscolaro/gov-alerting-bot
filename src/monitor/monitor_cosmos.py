@@ -231,10 +231,16 @@ async def monitor_cosmos_proposals(slack_sender: Optional[SlackAlertSender] = No
                 try:
                     metadata = network["metadata"]
                     async with clients[metadata["chain_id"]] as client:
+                        # Get tracked proposals for this network
+                        tracked_proposals = {
+                            k: v for k, v in tracker.proposals.items() 
+                            if k.startswith(f"{network['name']}:")
+                        }
+                        
                         # Increase timeout to 60 seconds to allow for fallback attempts
                         try:
                             async with asyncio.timeout(60):  # 60 second timeout for RPC calls including fallback
-                                proposals = await client.get_proposals()
+                                proposals = await client.get_proposals(tracked_proposals)
                         except asyncio.TimeoutError:
                             logger.error(f"Timeout fetching proposals for {network['name']} (including fallback attempt)")
                             continue
