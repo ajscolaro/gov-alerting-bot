@@ -49,10 +49,14 @@ Example Slack Block structure:
 │   │   ├── tally_watchlist.json    # Tally projects configuration
 │   │   ├── cosmos_watchlist.json   # Cosmos networks configuration
 │   │   └── snapshot_watchlist.json # Snapshot spaces configuration
-│   └── proposal_tracking/       # State tracking for proposals
-│       ├── tally_proposal_state.json    # Tally proposals state
-│       ├── cosmos_proposal_state.json   # Cosmos proposals state
-│       └── snapshot_proposal_state.json # Snapshot proposals state
+│   ├── proposal_tracking/       # State tracking for proposals (used by monitor.py)
+│   │   ├── tally_proposal_state.json    # Tally proposals state
+│   │   ├── cosmos_proposal_state.json   # Cosmos proposals state
+│   │   └── snapshot_proposal_state.json # Snapshot proposals state
+│   └── test_proposal_tracking/  # Test state tracking (used by individual monitor scripts)
+│       ├── tally_proposal_state.json    # Test state for Tally
+│       ├── cosmos_proposal_state.json   # Test state for Cosmos
+│       └── snapshot_proposal_state.json # Test state for Snapshot
 ├── src/
 │   ├── common/
 │   │   ├── alerts/            # Common alert handling code
@@ -111,7 +115,7 @@ CHECK_INTERVAL=60  # Polling interval in seconds
 4. Set up data files:
    - Create the required directories:
      ```bash
-     mkdir -p data/watchlists data/proposal_tracking
+     mkdir -p data/watchlists data/proposal_tracking data/test_proposal_tracking
      ```
    - Create empty state files:
      ```json
@@ -147,11 +151,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ```
 
 ### State Management
-- Each platform (Tally and Cosmos) maintains its own state file
+- Each platform (Tally, Cosmos, and Snapshot) maintains its own state file
 - State files are automatically created if they don't exist
+- Two sets of state files are maintained:
+  - Main state files in `data/proposal_tracking/` (used by monitor.py)
+  - Test state files in `data/test_proposal_tracking/` (used by individual monitor scripts)
 - Proposals are tracked with unique identifiers combining network/project ID and proposal ID
 - Thread context is preserved for all status updates
 - Proposals are automatically removed from tracking after reaching final states
+- Test state files are used automatically when running individual monitor scripts
+- Main state files are used when running through monitor.py
 
 ### Error Handling and Logging
 - Comprehensive error handling at multiple levels
@@ -183,12 +192,14 @@ The bot supports two modes of operation:
    - Monitors run indefinitely until stopped
    - All monitors use the same interval for consistency
    - Alerts are sent to the main channel defined by `SLACK_CHANNEL`
+   - Uses main state files in `data/proposal_tracking/`
 
 2. **Single Run** (via individual monitor scripts):
    - Each monitor can be run independently for testing/debugging
    - Runs once and exits
    - No interval configuration needed
    - Alerts are sent to the test channel defined by `TEST_SLACK_CHANNEL`
+   - Uses test state files in `data/test_proposal_tracking/`
    - Example:
      ```bash
      python src/monitor/monitor_tally.py

@@ -23,13 +23,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def get_state_file_path() -> str:
+    """Determine the appropriate state file path based on execution context."""
+    # Check if we're being run directly (not through monitor.py)
+    is_test_mode = os.path.basename(sys.argv[0]) in ["monitor_snapshot.py", "monitor_tally.py", "monitor_cosmos.py"]
+    
+    if is_test_mode:
+        # Use test state file when running individually
+        return "data/test_proposal_tracking/tally_proposal_state.json"
+    else:
+        # Use normal state file when running through monitor.py
+        return "data/proposal_tracking/tally_proposal_state.json"
+
 class TallyProposalTracker:
     """Tracks Tally proposals and their status changes with file-based persistence."""
     
-    def __init__(self, state_file: str = "data/proposal_tracking/tally_proposal_state.json"):
-        self.state_file = state_file
+    def __init__(self, continuous: bool = False):
+        self.state_file = "data/test_proposal_tracking/tally_proposal_state.json" if not continuous else "data/proposal_tracking/tally_proposal_state.json"
         self.proposals: Dict[str, Dict] = self._load_state()
-        logger.info(f"Loaded state from {state_file}: {len(self.proposals)} proposals")
+        logger.info(f"Loaded state from {self.state_file}: {len(self.proposals)} proposals")
     
     def _load_state(self) -> Dict[str, Dict]:
         """Load proposal state from file."""
@@ -199,7 +211,7 @@ async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = Non
     if slack_sender is None:
         slack_sender = SlackAlertSender(config)
     alert_handler = TallyAlertHandler(config)
-    tracker = TallyProposalTracker()
+    tracker = TallyProposalTracker(continuous)
     
     # Load watchlist
     tally_projects = await load_tally_watchlist()
@@ -252,6 +264,9 @@ async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = Non
 async def main():
     """Main entry point for Tally monitoring."""
     try:
+        # Ensure test directory exists
+        os.makedirs("data/test_proposal_tracking", exist_ok=True)
+        
         await monitor_tally_proposals(continuous=False)
     except KeyboardInterrupt:
         logger.info("Tally monitoring stopped by user")

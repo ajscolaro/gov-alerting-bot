@@ -35,6 +35,9 @@ async def run_monitors(monitors: List[str]):
         logger.error("Missing required environment variables: SLACK_BOT_TOKEN and/or SLACK_CHANNEL")
         return
     
+    # Get check interval from environment
+    check_interval = int(os.getenv("CHECK_INTERVAL", "60"))  # Default to 60 seconds if not set
+    
     # Initialize components
     slack_sender = SlackAlertSender(config)
     
@@ -42,10 +45,10 @@ async def run_monitors(monitors: List[str]):
     tasks = []
     if "tally" in monitors:
         logger.info("Starting Tally monitor")
-        tasks.append(monitor_tally_proposals(slack_sender))
+        tasks.append(monitor_tally_proposals(slack_sender, continuous=True, check_interval=check_interval))
     if "cosmos" in monitors:
         logger.info("Starting Cosmos monitor")
-        tasks.append(monitor_cosmos_proposals(slack_sender))
+        tasks.append(monitor_cosmos_proposals(slack_sender, continuous=True, check_interval=check_interval))
     
     if not tasks:
         logger.error("No valid monitors specified")
@@ -74,6 +77,7 @@ async def main():
     # Ensure data directories exist
     os.makedirs("data/watchlists", exist_ok=True)
     os.makedirs("data/proposal_tracking", exist_ok=True)
+    os.makedirs("data/test_proposal_tracking", exist_ok=True)
     
     await run_monitors(args.monitors)
 
