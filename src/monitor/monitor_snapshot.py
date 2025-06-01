@@ -163,23 +163,24 @@ async def load_snapshot_watchlist():
 
 async def process_snapshot_proposal_alert(
     proposal: Dict,
-    project_name: str,
+    project: Dict,
     previous_status: str = None,
     alert_handler: SnapshotAlertHandler = None,
     alert_sender: SlackAlertSender = None,
     snapshot_url: str = None,
-    thread_ts: Optional[str] = None
-) -> Optional[Dict]:
-    """Process a Snapshot proposal alert.
-    
-    Returns:
-        Optional[Dict]: The result from sending the alert, or None if no alert was sent.
-    """
-    if not alert_handler or not alert_sender:
-        logger.error("Missing required alert handler or sender")
-        return None
+    thread_ts: Optional[str] = None,
+    tracker: SnapshotProposalTracker = None,
+    proposal_id: str = None
+) -> None:
+    """Process a Snapshot proposal alert."""
+    if not alert_handler or not alert_sender or not tracker:
+        logger.error("Missing required alert handler, sender, or tracker")
+        return
         
     try:
+        # Use space name from metadata consistently
+        project_id = project["metadata"]["space"]
+        
         # Determine alert type based on proposal state
         if proposal["state"] == "active":
             alert_type = "proposal_active"
@@ -190,9 +191,11 @@ async def process_snapshot_proposal_alert(
             
         # Check if we should send an alert
         if alert_handler.should_alert(proposal, previous_status):
+            logger.info(f"Sending {alert_type} alert for {project['name']} proposal {proposal['id']}")
+            
             # Format and send the alert
             alert_data = {
-                "project_name": project_name,
+                "project_name": project["name"],
                 "proposal": proposal,
                 "snapshot_url": snapshot_url
             }
@@ -213,30 +216,26 @@ async def process_snapshot_proposal_alert(
             result = await alert_sender.send_alert(alert_handler, message)
             
             if result["ok"]:
-                # Store thread timestamp for new proposals
                 if alert_type == "proposal_active":
-                    thread_ts = result["ts"]
-                    logger.info(f"Stored thread timestamp for new proposal: {thread_ts}")
-                
-                # If this is an ended or deleted proposal, send a follow-up message in the thread
-                if alert_type in ["proposal_ended", "proposal_deleted"] and thread_ts:
-                    follow_up_message = {
-                        "text": f"Proposal has been {alert_type.split('_')[1]} and will no longer be tracked.",
-                        "thread_ts": thread_ts
-                    }
-                    await alert_sender.send_alert(alert_handler, follow_up_message)
-                    
-                logger.info(f"Sent {alert_type} alert for {project_name} proposal {proposal['id']}")
-                return result
+                    # For new proposals, store thread timestamp
+                    tracker.update_proposal(proposal_id, proposal["state"], result["ts"], True, project_id=project_id)
+                    logger.info(f"Stored thread timestamp for new proposal: {result['ts']}")
+                elif alert_type in ["proposal_ended", "proposal_deleted"]:
+                    # For ended/deleted proposals, remove from tracking
+                    tracker.remove_proposal(proposal_id, project_id=project_id)
+                    logger.info(f"Removed {alert_type.split('_')[1]} proposal from tracking: {proposal_id}")
             else:
-                logger.warning(f"Failed to send alert for {project_name} proposal {proposal['id']}")
-                return result
+                # If alert failed, just update the status
+                tracker.update_proposal(proposal_id, proposal["state"], thread_ts, project_id=project_id)
+                logger.warning(f"Failed to send alert, updated status only: {proposal['state']}")
+        elif previous_status and previous_status != proposal["state"]:
+            # Update status without sending alert
+            tracker.update_proposal(proposal_id, proposal["state"], thread_ts, project_id=project_id)
+            logger.info(f"Updated proposal status without alert: {proposal['state']}")
             
     except Exception as e:
         logger.error(f"Error processing alert for proposal {proposal['id']}: {str(e)}")
         raise
-        
-    return None
 
 async def check_proposals(
     client: SnapshotClient,
@@ -248,18 +247,31 @@ async def check_proposals(
 ) -> None:
     """Check all tracked proposals for updates."""
     try:
-        # Get all tracked proposals
+        # Get all tracked proposals and create a copy of the keys
         proposals = tracker.get_all_proposals()
+        proposal_keys = list(proposals.keys())  # Create a copy of keys to iterate over
         logger.info(f"Checking {len(proposals)} tracked proposals")
         
-        for proposal_id, proposal_data in proposals.items():
+        # Load watchlist to get project objects
+        snapshot_projects = await load_snapshot_watchlist()
+        project_map = {p["metadata"]["space"]: p for p in snapshot_projects}
+        
+        for proposal_id in proposal_keys:  # Iterate over the copy of keys
             try:
+                proposal_data = proposals[proposal_id]  # Get the data using the key
+                
                 # Acquire rate limit token
                 await rate_limiter.acquire()
                 
                 try:
-                    # Extract just the proposal ID from the key (remove project_id: prefix)
-                    actual_proposal_id = proposal_id.split(":", 1)[1] if ":" in proposal_id else proposal_id
+                    # Extract space and proposal ID from the key
+                    space, actual_proposal_id = proposal_id.split(":", 1) if ":" in proposal_id else (None, proposal_id)
+                    
+                    if not space or space not in project_map:
+                        logger.error(f"Could not find project for space {space}")
+                        continue
+                        
+                    project = project_map[space]
                     
                     # Get current proposal state
                     current_proposal = await client.get_proposal(actual_proposal_id)
@@ -275,17 +287,18 @@ async def check_proposals(
                             "title": proposal_data.get("title", "Unknown Proposal")
                         }
                         
+                        # Process the alert
                         await process_snapshot_proposal_alert(
                             proposal=deleted_proposal,
-                            project_name=proposal_data["project_name"],
+                            project=project,  # Pass the full project object
                             previous_status=proposal_data["status"],
                             alert_handler=alert_handler,
                             alert_sender=alert_sender,
-                            snapshot_url=snapshot_url,
-                            thread_ts=proposal_data.get("thread_ts")
+                            snapshot_url=project["metadata"]["snapshot_url"],
+                            thread_ts=proposal_data.get("thread_ts"),
+                            tracker=tracker,
+                            proposal_id=actual_proposal_id
                         )
-                        # Remove deleted proposal from tracking
-                        tracker.remove_proposal(proposal_id)
                         continue
                     
                     # Check if proposal state has changed
@@ -295,21 +308,15 @@ async def check_proposals(
                         # Process the alert
                         await process_snapshot_proposal_alert(
                             proposal=current_proposal,
-                            project_name=proposal_data["project_name"],
+                            project=project,  # Pass the full project object
                             previous_status=proposal_data["status"],
                             alert_handler=alert_handler,
                             alert_sender=alert_sender,
-                            snapshot_url=snapshot_url,
-                            thread_ts=proposal_data.get("thread_ts")
+                            snapshot_url=project["metadata"]["snapshot_url"],
+                            thread_ts=proposal_data.get("thread_ts"),
+                            tracker=tracker,
+                            proposal_id=actual_proposal_id
                         )
-                        
-                        # Update proposal state
-                        tracker.update_proposal(proposal_id, current_proposal["state"], proposal_data.get("thread_ts"), True)
-                        
-                        # If proposal has ended, remove it from tracking
-                        if current_proposal["state"] == "closed":
-                            tracker.remove_proposal(proposal_id)
-                            logger.info(f"Removed ended proposal {proposal_id} from tracking")
                     
                 except Exception as e:
                     if "Too Many Requests" in str(e):
@@ -325,7 +332,7 @@ async def check_proposals(
                     rate_limiter.release()
                 
             except Exception as e:
-                logger.error(f"Error checking proposal {proposal_id}: {str(e)}")
+                logger.error(f"Error processing proposal {proposal_id}: {str(e)}")
                 continue
                 
     except Exception as e:
@@ -378,21 +385,13 @@ async def monitor_snapshot_proposals(slack_sender: Optional[SlackAlertSender] = 
                             logger.info(f"Found {len(proposals)} proposals for {project['name']}")
                             
                             for proposal in proposals:
-                                current = tracker.get_proposal(proposal["id"], project_id=project["name"])
-                                result = await process_snapshot_proposal_alert(
-                                    proposal, project["name"], current["status"] if current else None, 
-                                    alert_handler, slack_sender, project["metadata"]["snapshot_url"], current.get("thread_ts") if current else None
+                                current = tracker.get_proposal(proposal["id"], project_id=project["metadata"]["space"])
+                                await process_snapshot_proposal_alert(
+                                    proposal, project, current["status"] if current else None, 
+                                    alert_handler, slack_sender, project["metadata"]["snapshot_url"], 
+                                    current.get("thread_ts") if current else None,
+                                    tracker, proposal["id"]
                                 )
-                                
-                                # Update proposal state with project ID
-                                if not current and result and result.get("ok"):
-                                    tracker.update_proposal(
-                                        proposal["id"], 
-                                        proposal["state"], 
-                                        result["ts"], 
-                                        True, 
-                                        project_id=project["name"]
-                                    )
                                 
                         finally:
                             # Always release the rate limit token
