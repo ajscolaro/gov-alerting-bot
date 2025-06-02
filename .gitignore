@@ -50,11 +50,5 @@ data/test_proposal_tracking/
 ehthumbs.db
 Thumbs.db
 
-# Data files
-data/proposal_state.json
-data/watchlist.json
-data/tally_watchlist.json
-data/cosmos_watchlist.json
-
 # Test Scripts
 test_monitor.py 
