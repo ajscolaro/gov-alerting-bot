@@ -27,7 +27,7 @@ class SnapshotAlertHandler(BaseAlertHandler):
             button_text = "View Proposal"
         elif alert_type == "proposal_ended":
             title = f"{project_name} Snapshot Proposal Ended"
-            button_text = "View Results"
+            button_text = "View Proposal"
         else:  # proposal_deleted
             title = f"{project_name} Snapshot Proposal Deleted"
             button_text = None
