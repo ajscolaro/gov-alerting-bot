@@ -54,4 +54,7 @@ Thumbs.db
 data/proposal_state.json
 data/watchlist.json
 data/tally_watchlist.json
-data/cosmos_watchlist.json 
+data/cosmos_watchlist.json
+
+# Test Scripts
+test_monitor.py 
