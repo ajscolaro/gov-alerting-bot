@@ -137,7 +137,9 @@ async def process_sky_proposal_alert(
         # Determine alert type
         if not previous_status:
             alert_type = "proposal_active"
-        elif previous_status == "active" and proposal.status != "active":
+        elif previous_status == "active" and proposal.status == "passed":
+            alert_type = "proposal_update"
+        elif previous_status == "passed" and proposal.status == "executed":
             alert_type = "proposal_ended"
         else:
             alert_type = "proposal_update"

@@ -127,6 +127,8 @@ class SkyClient:
                 spell_data = data.get("spellData", {})
                 if spell_data.get("hasBeenCast"):
                     status = "executed"
+                elif spell_data.get("datePassed"):
+                    status = "passed"
                 elif not data.get("active", True):
                     status = "passed"
             

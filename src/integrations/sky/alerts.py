@@ -40,6 +40,12 @@ class SkyAlertHandler(BaseAlertHandler):
             "text": f"*{title}*\n{description}",
             "blocks": build_slack_alert_blocks(title, description, button_text, button_url)
         }
+
+        # For non-active alerts, ensure thread replies are broadcast
+        if alert_type != "proposal_active" and "thread_ts" in data:
+            message["reply_broadcast"] = True
+            logger.info(f"Sending {alert_type} as thread reply with broadcast enabled")
+
         return message
     
     def should_alert(self, proposal: SkyProposal, previous_status: str = None) -> bool:
@@ -63,9 +69,9 @@ class SkyAlertHandler(BaseAlertHandler):
             
             # For executive votes
             else:  # executive vote
-                # Alert when an active vote passes
+                # Alert when an active vote passes (as an update)
                 if previous_status == "active" and proposal.status == "passed":
-                    logger.info("Executive vote passed")
+                    logger.info("Executive vote passed - sending update alert")
                     return True
                 
                 # Alert when a passed vote is executed
