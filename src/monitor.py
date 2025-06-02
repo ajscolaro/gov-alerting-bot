@@ -13,6 +13,7 @@ from common.alerts.base import AlertConfig
 from monitor.monitor_tally import monitor_tally_proposals
 from monitor.monitor_cosmos import monitor_cosmos_proposals
 from monitor.monitor_snapshot import monitor_snapshot_proposals
+from monitor.monitor_sky import monitor_sky_proposals
 
 # Configure logging
 logging.basicConfig(
@@ -26,7 +27,7 @@ async def run_monitors(monitors: List[str]):
     # Load configuration from environment variables
     config = AlertConfig(
         slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
-        slack_channel=os.getenv("SLACK_CHANNEL"),
+        slack_channel=os.getenv("SLACK_CHANNEL"),  # Use production channel
         disable_link_previews=True,
         enabled_alert_types=["proposal_active", "proposal_update", "proposal_ended",
                            "proposal_voting", "proposal_ended", "proposal_deleted",
@@ -54,6 +55,9 @@ async def run_monitors(monitors: List[str]):
     if "snapshot" in monitors:
         logger.info("Starting Snapshot monitor")
         tasks.append(monitor_snapshot_proposals(slack_sender, continuous=True, check_interval=check_interval))
+    if "sky" in monitors:
+        logger.info("Starting Sky monitor")
+        tasks.append(monitor_sky_proposals(slack_sender, continuous=True, check_interval=check_interval))
     
     if not tasks:
         logger.error("No valid monitors specified")
@@ -73,8 +77,8 @@ async def main():
     parser.add_argument(
         "--monitors",
         nargs="+",
-        choices=["tally", "cosmos", "snapshot"],
-        default=["tally", "cosmos", "snapshot"],
+        choices=["tally", "cosmos", "snapshot", "sky"],
+        default=["tally", "cosmos", "snapshot", "sky"],
         help="Specify which monitors to run (default: all)"
     )
     args = parser.parse_args()
