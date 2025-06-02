@@ -69,8 +69,10 @@ class RateLimiter:
 class SnapshotProposalTracker:
     """Tracks Snapshot proposals and their status changes with file-based persistence."""
     
-    def __init__(self, continuous: bool = False):
-        self.state_file = "data/test_proposal_tracking/snapshot_proposal_state.json" if not continuous else "data/proposal_tracking/snapshot_proposal_state.json"
+    def __init__(self, continuous: bool = False, is_test_mode: Optional[bool] = None):
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        self.state_file = "data/test_proposal_tracking/snapshot_proposal_state.json" if self.is_test_mode else "data/proposal_tracking/snapshot_proposal_state.json"
         self.proposals: Dict[str, Dict] = self._load_state()
         logger.info(f"Loaded state from {self.state_file}: {len(self.proposals)} proposals")
     
@@ -136,8 +138,10 @@ class SnapshotProposalTracker:
 class SpaceAlertTracker:
     """Tracks which spaces we've already alerted about."""
     
-    def __init__(self, continuous: bool = False):
-        self.state_file = "data/test_proposal_tracking/admin_alerts.json" if not continuous else "data/proposal_tracking/admin_alerts.json"
+    def __init__(self, continuous: bool = False, is_test_mode: Optional[bool] = None):
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        self.state_file = "data/test_proposal_tracking/admin_alerts.json" if self.is_test_mode else "data/proposal_tracking/admin_alerts.json"
         self.alerted_spaces: Dict[str, bool] = self._load_state()
         logger.info(f"Loaded admin alerts from {self.state_file}: {len(self.alerted_spaces)} spaces")
     
@@ -467,20 +471,37 @@ async def check_proposals(
         logger.error(f"Error in check_proposals: {e}")
         raise
 
-async def monitor_snapshot_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
-    """Monitor Snapshot proposals and send alerts."""
+async def monitor_snapshot_proposals(
+    slack_sender: Optional[SlackAlertSender] = None, 
+    continuous: bool = False, 
+    check_interval: Optional[int] = None,
+    is_test_mode: Optional[bool] = None
+):
+    """Monitor Snapshot proposals and send alerts.
+    
+    Args:
+        slack_sender: Optional SlackAlertSender instance
+        continuous: If True, runs in a continuous loop. If False, runs once and exits.
+        check_interval: Number of seconds to wait between checks when running continuously.
+                      Required if continuous is True, ignored otherwise.
+        is_test_mode: If True, uses test files and test channel. If None, derived from continuous
+                     for backward compatibility.
+    """
     try:
         if continuous and check_interval is None:
             raise ValueError("check_interval is required when continuous is True")
             
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        is_test_mode = not continuous if is_test_mode is None else is_test_mode
+            
         # Initialize components
-        tracker = SnapshotProposalTracker(continuous)
-        space_tracker = SpaceAlertTracker(continuous)
+        tracker = SnapshotProposalTracker(continuous=continuous, is_test_mode=is_test_mode)
+        space_tracker = SpaceAlertTracker(continuous=continuous, is_test_mode=is_test_mode)
         
         # Create alert config
         config = AlertConfig(
             slack_bot_token=settings.SLACK_BOT_TOKEN,
-            slack_channel=settings.TEST_SLACK_CHANNEL if not continuous else settings.SLACK_CHANNEL,
+            slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
             disable_link_previews=False
         )
         
