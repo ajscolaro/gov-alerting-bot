@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     
     # API Keys and endpoints
     TALLY_API_KEY: str = os.getenv("TALLY_API_KEY", "")
+    TEST_TALLY_API_KEY: str = os.getenv("TEST_TALLY_API_KEY", "")  # Test API key for test mode
     TALLY_API_BASE_URL: str = "https://api.tally.xyz/v1"
     
     # Slack settings
@@ -27,10 +28,12 @@ class Settings(BaseSettings):
     # Monitoring settings
     POLLING_INTERVAL: int = int(os.getenv("POLLING_INTERVAL", "300"))  # 5 minutes default
     CHECK_INTERVAL: int = int(os.getenv("CHECK_INTERVAL", "60"))  # 1 minute default
+    TEST_CHECK_INTERVAL: int = int(os.getenv("TEST_CHECK_INTERVAL", "60"))  # 1 minute default for test mode
     
     model_config = {
         "env_file": ".env",
-        "case_sensitive": True
+        "case_sensitive": True,
+        "extra": "allow"  # Allow extra fields in environment variables
     }
 
 

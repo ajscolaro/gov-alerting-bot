@@ -69,8 +69,10 @@ class RateLimiter:
 class SnapshotProposalTracker:
     """Tracks Snapshot proposals and their status changes with file-based persistence."""
     
-    def __init__(self, continuous: bool = False):
-        self.state_file = "data/test_proposal_tracking/snapshot_proposal_state.json" if not continuous else "data/proposal_tracking/snapshot_proposal_state.json"
+    def __init__(self, continuous: bool = False, is_test_mode: Optional[bool] = None):
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        self.state_file = "data/test_proposal_tracking/snapshot_proposal_state.json" if self.is_test_mode else "data/proposal_tracking/snapshot_proposal_state.json"
         self.proposals: Dict[str, Dict] = self._load_state()
         logger.info(f"Loaded state from {self.state_file}: {len(self.proposals)} proposals")
     
@@ -136,8 +138,10 @@ class SnapshotProposalTracker:
 class SpaceAlertTracker:
     """Tracks which spaces we've already alerted about."""
     
-    def __init__(self, continuous: bool = False):
-        self.state_file = "data/test_proposal_tracking/admin_alerts.json" if not continuous else "data/proposal_tracking/admin_alerts.json"
+    def __init__(self, continuous: bool = False, is_test_mode: Optional[bool] = None):
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        self.state_file = "data/test_proposal_tracking/admin_alerts.json" if self.is_test_mode else "data/proposal_tracking/admin_alerts.json"
         self.alerted_spaces: Dict[str, bool] = self._load_state()
         logger.info(f"Loaded admin alerts from {self.state_file}: {len(self.alerted_spaces)} spaces")
     
@@ -462,112 +466,42 @@ async def check_proposals(
             # Add a small delay between batches to avoid rate limits
             if i + BATCH_SIZE < len(spaces):
                 await asyncio.sleep(2)
-        
-        # Now check for new proposals, but only for spaces we haven't alerted about
-        spaces_to_check = []
-        for project in snapshot_projects:
-            space = project["metadata"]["space"]
-            if not space_tracker.has_alerted(space) and space not in proposals_by_space:
-                spaces_to_check.append(project)
-        
-        if spaces_to_check:
-            logger.info(f"Checking {len(spaces_to_check)} spaces for new proposals")
-            
-            # Process spaces in batches
-            for i in range(0, len(spaces_to_check), BATCH_SIZE):
-                batch = spaces_to_check[i:i + BATCH_SIZE]
-                logger.info(f"Processing batch {i//BATCH_SIZE + 1} of {(len(spaces_to_check) + BATCH_SIZE - 1)//BATCH_SIZE}")
-                
-                # Process each space in the batch
-                for project in batch:
-                    space = project["metadata"]["space"]
-                    logger.info(f"Checking proposals for {project['name']}")
-                    
-                    try:
-                        # Acquire rate limit token
-                        await rate_limiter.acquire()
-                        
-                        try:
-                            # Get active proposals - this will return [] for valid spaces with no proposals
-                            proposals = await client.get_active_proposals(space)
-                            
-                            if proposals is None:
-                                # Space doesn't exist - send alert and mark as alerted
-                                logger.warning(f"Space {space} not found for {project['name']}")
-                                if not space_tracker.has_alerted(space):
-                                    result = await process_snapshot_proposal_alert(
-                                        proposal={"id": "invalid", "state": "invalid", "title": "Invalid Space", "space": space},
-                                        project=project,
-                                        previous_status=None,
-                                        alert_handler=alert_handler,
-                                        alert_sender=alert_sender,
-                                        snapshot_url=project["metadata"]["snapshot_url"],
-                                        thread_ts=None,
-                                        tracker=tracker,
-                                        proposal_id=None,
-                                        alert_type="space_not_detected"
-                                    )
-                                    if result and result.get("ok"):
-                                        space_tracker.mark_alerted(space)
-                                continue
-                                
-                            logger.info(f"Found {len(proposals)} proposals for {project['name']}")
-                            
-                            for proposal in proposals:
-                                current = tracker.get_proposal(proposal["id"], project_id=space)
-                                result = await process_snapshot_proposal_alert(
-                                    proposal=proposal,
-                                    project=project,
-                                    previous_status=current["status"] if current else None,
-                                    alert_handler=alert_handler,
-                                    alert_sender=alert_sender,
-                                    snapshot_url=project["metadata"]["snapshot_url"],
-                                    thread_ts=current.get("thread_ts") if current else None,
-                                    tracker=tracker,
-                                    proposal_id=proposal["id"]
-                                )
-                                
-                        except aiohttp.ClientResponseError as e:
-                            if e.status == 429:
-                                # Handle rate limit with backoff
-                                if await rate_limiter.handle_rate_limit_error():
-                                    # Retry getting proposals
-                                    continue
-                                else:
-                                    logger.error("Max retries exceeded for rate limit, skipping space")
-                                    break
-                            else:
-                                raise
-                        finally:
-                            # Always release the rate limit token
-                            rate_limiter.release()
-                            
-                    except Exception as e:
-                        logger.error(f"Error processing {project['name']}: {e}")
-                        continue
-                
-                # Add a small delay between batches to avoid rate limits
-                if i + BATCH_SIZE < len(spaces_to_check):
-                    await asyncio.sleep(2)
                     
     except Exception as e:
         logger.error(f"Error in check_proposals: {e}")
         raise
 
-async def monitor_snapshot_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
-    """Monitor Snapshot proposals and send alerts."""
+async def monitor_snapshot_proposals(
+    slack_sender: Optional[SlackAlertSender] = None, 
+    continuous: bool = False, 
+    check_interval: Optional[int] = None,
+    is_test_mode: Optional[bool] = None
+):
+    """Monitor Snapshot proposals and send alerts.
+    
+    Args:
+        slack_sender: Optional SlackAlertSender instance
+        continuous: If True, runs in a continuous loop. If False, runs once and exits.
+        check_interval: Number of seconds to wait between checks when running continuously.
+                      Required if continuous is True, ignored otherwise.
+        is_test_mode: If True, uses test files and test channel. If None, derived from continuous
+                     for backward compatibility.
+    """
     try:
         if continuous and check_interval is None:
             raise ValueError("check_interval is required when continuous is True")
             
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        is_test_mode = not continuous if is_test_mode is None else is_test_mode
+            
         # Initialize components
-        tracker = SnapshotProposalTracker(continuous)
-        space_tracker = SpaceAlertTracker(continuous)
+        tracker = SnapshotProposalTracker(continuous=continuous, is_test_mode=is_test_mode)
+        space_tracker = SpaceAlertTracker(continuous=continuous, is_test_mode=is_test_mode)
         
         # Create alert config
         config = AlertConfig(
             slack_bot_token=settings.SLACK_BOT_TOKEN,
-            slack_channel=settings.TEST_SLACK_CHANNEL if not continuous else settings.SLACK_CHANNEL,
+            slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
             disable_link_previews=False
         )
         
@@ -590,70 +524,88 @@ async def monitor_snapshot_proposals(slack_sender: Optional[SlackAlertSender] = 
         async with SnapshotClient() as client:
             while True:
                 try:
-                    # First check existing proposals for updates/deletions and validate spaces
+                    # First check existing proposals for updates/deletions
                     await check_proposals(client, tracker, space_tracker, alert_handler, slack_sender, None, rate_limiter)
                     
-                    # Then check for new proposals
+                    # Then check for new proposals in spaces we haven't alerted about
+                    spaces_to_check = []
                     for project in snapshot_projects:
-                        # Skip if we've already alerted about this space being invalid
-                        if space_tracker.has_alerted(project["metadata"]["space"]):
-                            continue
-                            
-                        logger.info(f"Checking proposals for {project['name']}")
+                        space = project["metadata"]["space"]
+                        if not space_tracker.has_alerted(space):
+                            spaces_to_check.append(project)
+                    
+                    if spaces_to_check:
+                        logger.info(f"Checking {len(spaces_to_check)} spaces for new proposals")
                         
-                        try:
-                            # Acquire rate limit token
-                            await rate_limiter.acquire()
+                        # Process spaces in batches
+                        for i in range(0, len(spaces_to_check), BATCH_SIZE):
+                            batch = spaces_to_check[i:i + BATCH_SIZE]
+                            logger.info(f"Processing batch {i//BATCH_SIZE + 1} of {(len(spaces_to_check) + BATCH_SIZE - 1)//BATCH_SIZE}")
                             
-                            try:
-                                proposals = await client.get_active_proposals(project["metadata"]["space"])
+                            # Process each space in the batch
+                            for project in batch:
+                                space = project["metadata"]["space"]
+                                logger.info(f"Checking proposals for {project['name']}")
                                 
-                                if proposals is None:
-                                    # Space doesn't exist - send alert and mark as alerted
-                                    logger.warning(f"Space {project['metadata']['space']} not found for {project['name']}")
-                                    if not space_tracker.has_alerted(project["metadata"]["space"]):
-                                        result = await process_snapshot_proposal_alert(
-                                            proposal={"id": "invalid", "state": "invalid", "title": "Invalid Space"},
-                                            project=project,
-                                            previous_status=None,
-                                            alert_handler=alert_handler,
-                                            alert_sender=slack_sender,
-                                            snapshot_url=project["metadata"]["snapshot_url"],
-                                            thread_ts=None,
-                                            tracker=tracker,
-                                            proposal_id=None,
-                                            alert_type="space_not_detected"
-                                        )
-                                        if result and result.get("ok"):
-                                            space_tracker.mark_alerted(project["metadata"]["space"])
+                                try:
+                                    # Acquire rate limit token
+                                    await rate_limiter.acquire()
+                                    
+                                    try:
+                                        # Get active proposals - this will return [] for valid spaces with no proposals
+                                        proposals = await client.get_active_proposals(space)
+                                        
+                                        if proposals is None:
+                                            # Space doesn't exist - send alert and mark as alerted
+                                            logger.warning(f"Space {space} not found for {project['name']}")
+                                            if not space_tracker.has_alerted(space):
+                                                result = await process_snapshot_proposal_alert(
+                                                    proposal={"id": "invalid", "state": "invalid", "title": "Invalid Space", "space": space},
+                                                    project=project,
+                                                    previous_status=None,
+                                                    alert_handler=alert_handler,
+                                                    alert_sender=slack_sender,
+                                                    snapshot_url=project["metadata"]["snapshot_url"],
+                                                    thread_ts=None,
+                                                    tracker=tracker,
+                                                    proposal_id=None,
+                                                    alert_type="space_not_detected"
+                                                )
+                                                if result and result.get("ok"):
+                                                    space_tracker.mark_alerted(space)
+                                            continue
+                                            
+                                        logger.info(f"Found {len(proposals)} proposals for {project['name']}")
+                                        
+                                        for proposal in proposals:
+                                            current = tracker.get_proposal(proposal["id"], project_id=space)
+                                            result = await process_snapshot_proposal_alert(
+                                                proposal=proposal,
+                                                project=project,
+                                                previous_status=current["status"] if current else None,
+                                                alert_handler=alert_handler,
+                                                alert_sender=slack_sender,
+                                                snapshot_url=project["metadata"]["snapshot_url"],
+                                                thread_ts=current.get("thread_ts") if current else None,
+                                                tracker=tracker,
+                                                proposal_id=proposal["id"]
+                                            )
+                                            
+                                    finally:
+                                        # Always release the rate limit token
+                                        rate_limiter.release()
+                                        
+                                except Exception as e:
+                                    logger.error(f"Error processing {project['name']}: {e}")
                                     continue
-                                    
-                                logger.info(f"Found {len(proposals)} proposals for {project['name']}")
-                                
-                                for proposal in proposals:
-                                    current = tracker.get_proposal(proposal["id"], project_id=project["metadata"]["space"])
-                                    result = await process_snapshot_proposal_alert(
-                                        proposal=proposal,
-                                        project=project,  # Pass the full project object
-                                        previous_status=current["status"] if current else None,
-                                        alert_handler=alert_handler,
-                                        alert_sender=slack_sender,
-                                        snapshot_url=project["metadata"]["snapshot_url"],
-                                        thread_ts=current.get("thread_ts") if current else None,
-                                        tracker=tracker,
-                                        proposal_id=proposal["id"]
-                                    )
-                                    
-                            finally:
-                                # Always release the rate limit token
-                                rate_limiter.release()
-                                
-                        except Exception as e:
-                            logger.error(f"Error processing {project['name']}: {e}")
-                            continue
+                            
+                            # Add a small delay between batches to avoid rate limits
+                            if i + BATCH_SIZE < len(spaces_to_check):
+                                await asyncio.sleep(2)
                     
                     logger.info(f"Currently tracking {tracker.get_tracked_proposals_count()} proposals")
                     
+                    # Break out of the loop if not running continuously
                     if not continuous:
                         break
                         
@@ -662,11 +614,10 @@ async def monitor_snapshot_proposals(slack_sender: Optional[SlackAlertSender] = 
                     
                 except Exception as e:
                     logger.error(f"Error monitoring proposals: {e}")
-                    if continuous:
-                        await asyncio.sleep(60)  # Wait a minute before retrying on error
-                    else:
+                    if not continuous:
                         break
-                        
+                    await asyncio.sleep(60)  # Wait a minute before retrying on error
+                    
     except Exception as e:
         logger.error(f"Error in monitor_snapshot_proposals: {e}")
         raise
