@@ -22,14 +22,15 @@ class TallyProposal(BaseModel):
 class TallyClient:
     """Client for interacting with Tally API."""
     
-    def __init__(self):
+    def __init__(self, is_test_mode: bool = False):
         self.api_url = "https://api.tally.xyz/query"
-        self.api_key = os.getenv("TALLY_API_KEY")
+        # Use test API key if in test mode, otherwise use production key
+        self.api_key = os.getenv("TEST_TALLY_API_KEY" if is_test_mode else "TALLY_API_KEY")
         if not self.api_key:
-            raise ValueError("TALLY_API_KEY environment variable is not set")
+            raise ValueError(f"{'TEST_' if is_test_mode else ''}TALLY_API_KEY environment variable is not set")
         self._last_request_time = 0
         self._min_request_interval = 1.0  # Changed from 2.0 to 1.0 second
-        logger.info("Initialized TallyClient")
+        logger.info(f"Initialized TallyClient in {'test' if is_test_mode else 'production'} mode")
     
     async def _wait_for_rate_limit(self):
         """Ensure we respect rate limits by waiting if necessary."""
