@@ -20,25 +20,11 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 - Comprehensive error handling and logging
 - Modular design allowing independent monitoring of each platform
 
-## Slack Alert Formatting
+## Documentation
 
-All Slack alerts use a modern, consistent format:
-- **Title:** Displayed in a header block (large, prominent)
-- **Description/Body:** Displayed in a context block (smaller, lighter font)
-- **Divider:** Visually separates the content from actions
-- **Button:** Action button (e.g., "View Proposal") shown below the divider
-
-This ensures alerts are visually clear, with the most important information (the title) emphasized, and details shown in a less prominent style.
-
-Example Slack Block structure:
-```json
-[
-  { "type": "header", "text": { "type": "plain_text", "text": "Project Proposal Active", "emoji": true } },
-  { "type": "context", "elements": [ { "type": "mrkdwn", "text": "MIP 103 - Incentives Distribution on Unichain" } ] },
-  { "type": "divider" },
-  { "type": "actions", "elements": [ { "type": "button", "text": { "type": "plain_text", "text": "View Proposal", "emoji": true }, "url": "https://..." } ] }
-]
-```
+- [Snapshot Integration](docs/snapshot_integration.md) - Details about Snapshot integration, alert types, and monitoring
+- [Cosmos Integration](docs/cosmos_integration.md) - Information about Cosmos SDK chain monitoring and API handling
+- [Tally Integration](docs/tally_integration.md) - Details about Tally governance monitoring and alerts
 
 ## Project Structure
 
@@ -49,11 +35,12 @@ Example Slack Block structure:
 │   │   ├── tally_watchlist.json    # Tally projects configuration
 │   │   ├── cosmos_watchlist.json   # Cosmos networks configuration
 │   │   └── snapshot_watchlist.json # Snapshot spaces configuration
-│   ├── proposal_tracking/       # State tracking for proposals (used by monitor.py)
+│   ├── proposal_tracking/       # State tracking for proposals
 │   │   ├── tally_proposal_state.json    # Tally proposals state
 │   │   ├── cosmos_proposal_state.json   # Cosmos proposals state
-│   │   └── snapshot_proposal_state.json # Snapshot proposals state
-│   └── test_proposal_tracking/  # Test state tracking (used by individual monitor scripts)
+│   │   ├── snapshot_proposal_state.json # Snapshot proposals state
+│   │   └── admin_alerts.json           # Tracks alerts that require admin action, like invalid space ids
+│   └── test_proposal_tracking/  # Test state tracking
 │       ├── tally_proposal_state.json    # Test state for Tally
 │       ├── cosmos_proposal_state.json   # Test state for Cosmos
 │       └── snapshot_proposal_state.json # Test state for Snapshot
@@ -85,6 +72,10 @@ Example Slack Block structure:
 │   │   └── __init__.py
 │   ├── monitor.py            # Main monitoring script (runs all monitors)
 │   └── __init__.py
+├── docs/                     # Documentation
+│   ├── snapshot_integration.md
+│   ├── cosmos_integration.md
+│   └── tally_integration.md
 ├── .env                    # Environment configuration
 ├── requirements.txt        # Production dependencies
 └── requirements-dev.txt    # Development dependencies
@@ -126,7 +117,15 @@ CHECK_INTERVAL=60  # Polling interval in seconds
      # data/proposal_tracking/cosmos_proposal_state.json
      {}
      ```
-   - Create watchlist files following the configuration guide below
+     ```json
+     # data/proposal_tracking/snapshot_proposal_state.json
+     {}
+     ```
+     ```json
+     # data/proposal_tracking/admin_alerts.json
+     {}
+     ```
+   - Create watchlist files following the configuration guide in each integration's documentation
 
 5. Run the monitoring scripts:
 ```bash
@@ -134,33 +133,42 @@ CHECK_INTERVAL=60  # Polling interval in seconds
 python src/monitor.py
 
 # Run specific monitors
-python src/monitor.py --monitors tally
-python src/monitor.py --monitors cosmos
+python src/monitor.py --monitors tally cosmos snapshot
 
-# Run individual monitors directly
+# Run individual monitors directly (for testing)
 python src/monitor/monitor_tally.py
 python src/monitor/monitor_cosmos.py
+python src/monitor/monitor_snapshot.py
 ```
 
-## Important Notes
+## Common Features
 
-### Python Path and Imports
-The project uses relative imports and automatically adds the project root to the Python path. This allows running scripts from any directory while maintaining proper module resolution. The path is added in each script using:
-```python
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+### Slack Alert Formatting
+
+All Slack alerts use a modern, consistent format:
+- **Title:** Displayed in a header block (large, prominent)
+- **Description/Body:** Displayed in a context block (smaller, lighter font)
+- **Divider:** Visually separates the content from actions
+- **Button:** Action button (e.g., "View Proposal") shown below the divider
+
+Example Slack Block structure:
+```json
+[
+  { "type": "header", "text": { "type": "plain_text", "text": "Project Proposal Active", "emoji": true } },
+  { "type": "context", "elements": [ { "type": "mrkdwn", "text": "MIP 103 - Incentives Distribution on Unichain" } ] },
+  { "type": "divider" },
+  { "type": "actions", "elements": [ { "type": "button", "text": { "type": "plain_text", "text": "View Proposal", "emoji": true }, "url": "https://..." } ] }
+]
 ```
 
 ### State Management
-- Each platform (Tally, Cosmos, and Snapshot) maintains its own state file
+- Each platform maintains its own state file in `data/proposal_tracking/`
+- Test state files are in `data/test_proposal_tracking/`
+- Admin alerts are tracked in `data/proposal_tracking/admin_alerts.json`
 - State files are automatically created if they don't exist
-- Two sets of state files are maintained:
-  - Main state files in `data/proposal_tracking/` (used by monitor.py)
-  - Test state files in `data/test_proposal_tracking/` (used by individual monitor scripts)
-- Proposals are tracked with unique identifiers combining network/project ID and proposal ID
+- Proposals are tracked with unique identifiers
 - Thread context is preserved for all status updates
-- Proposals are automatically removed from tracking after reaching final states
-- Test state files are used automatically when running individual monitor scripts
-- Main state files are used when running through monitor.py
+- Proposals are automatically removed after reaching final states
 
 ### Error Handling and Logging
 - Comprehensive error handling at multiple levels
@@ -173,342 +181,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 - Graceful handling of RPC endpoint failures
 
 ### Rate Limiting
-- Tally API: 1 request per 1 second
-- Cosmos REST APIs: 1 second intervals between requests
-- Snapshot API: 1 request per second with exponential backoff
 - Configurable polling intervals via environment variables
 - Automatic waiting between requests to respect rate limits
+- Platform-specific rate limits are documented in each integration's documentation
 
-### Monitoring System
-The bot supports two modes of operation:
-
-1. **Continuous Monitoring** (via `monitor.py`):
-   - Runs all enabled monitors in parallel
-   - Uses a single configurable interval for all monitors
-   - Configure the interval in `.env`:
-     ```env
-     CHECK_INTERVAL=60  # Polling interval in seconds
-     ```
-   - Monitors run indefinitely until stopped
-   - All monitors use the same interval for consistency
-   - Alerts are sent to the main channel defined by `SLACK_CHANNEL`
-   - Uses main state files in `data/proposal_tracking/`
-
-2. **Single Run** (via individual monitor scripts):
-   - Each monitor can be run independently for testing/debugging
-   - Runs once and exits
-   - No interval configuration needed
-   - Alerts are sent to the test channel defined by `TEST_SLACK_CHANNEL`
-   - Uses test state files in `data/test_proposal_tracking/`
-   - Example:
-     ```bash
-     python src/monitor/monitor_tally.py
-     python src/monitor/monitor_cosmos.py
-     ```
-
-### Environment Configuration
-The bot uses environment variables for configuration. Create a `.env` file with the following settings:
-
-```env
-# Required settings
-SLACK_BOT_TOKEN=xoxb-your-token
-SLACK_CHANNEL=your-channel-id
-TALLY_API_KEY=your-tally-api-key
-
-# Optional settings
-TEST_SLACK_CHANNEL=your-test-channel-id  # Channel for testing individual monitors
-CHECK_INTERVAL=60  # Polling interval in seconds for continuous monitoring
-```
-
-### Running the Bot
-```bash
-# Run all monitors continuously (uses SLACK_CHANNEL)
-python src/monitor.py
-
-# Run specific monitors continuously (uses SLACK_CHANNEL)
-python src/monitor.py --monitors tally
-python src/monitor.py --monitors cosmos
-
-# Run individual monitors once for testing (uses TEST_SLACK_CHANNEL)
-python src/monitor/monitor_tally.py
-python src/monitor/monitor_cosmos.py
-```
-
-### Cosmos Integration Specifics
-- The Cosmos monitor automatically handles both v1 and v1beta1 API versions
-- If a v1 endpoint returns 501 (Not Implemented), it falls back to v1beta1
-- Some Cosmos chains may only support v1beta1 endpoints
-- RPC endpoints may occasionally be slow or unresponsive
-- Consider using fallback RPCs for chains with reliability issues
-- When using a fallback RPC, both v1 and v1beta1 endpoints are tried on the fallback URL
-- The monitor will only skip a chain if both endpoints fail on both primary and fallback URLs
-- Each RPC attempt (primary and fallback) has up to 60 seconds to complete
-- SSL errors may appear in logs during timeouts but are handled gracefully
-
-### Snapshot Integration Specifics
-- The Snapshot monitor handles three proposal states: active, closed, and deleted
-- Proposals are tracked using a combination of project ID and proposal ID (format: "ProjectName:proposalId")
-- The monitor checks for both new proposals and updates to existing ones
-- Deleted proposals are detected when they no longer exist in the API response
-- Thread responses are used for all status updates (ended/deleted) to maintain context
-- All thread responses are broadcast to the channel for visibility
-- Rate limiting is implemented with exponential backoff for API errors
-- State file is automatically cleaned up when proposals are removed
-- Thread timestamps are properly stored and maintained for all proposals
-- Duplicate alerts are prevented by checking proposal state before sending
-- Project-specific proposal tracking ensures no cross-project conflicts
-- State file format includes project name for better readability and debugging
-
-> **Note:** The Snapshot integration and its Slack formatting are currently only available in the `feat/snapshot-integration` branch and not yet merged into `main`.
-
-### Recent Improvements
-1. **Thread Response Standardization**:
-   - Consistent thread handling across all monitors
-   - Centralized thread broadcast logic in `SlackAlertSender`
-   - Improved error handling for missing thread context
-   - Better logging of thread-related operations
-
-2. **Snapshot Monitor Enhancements**:
-   - Fixed proposal ID handling to correctly extract IDs from composite keys
-   - Improved state file management and cleanup
-   - Added proper thread context for ended and deleted proposals
-   - Enhanced error handling and logging
-   - Fixed duplicate alert issue by properly tracking thread timestamps
-   - Improved project-specific proposal tracking
-   - Better state file format with project names for readability
-
-3. **State Management**:
-   - More robust state file handling
-   - Better cleanup of ended/deleted proposals
-   - Improved thread timestamp tracking
-   - Consistent state file structure across monitors
-   - Project-specific proposal tracking to prevent conflicts
-   - Enhanced state file format with project names
-
-4. **Cosmos Monitor Optimizations**:
-   - Optimized proposal fetching to only check relevant proposals
-   - Added direct proposal ID lookups for tracked proposals
-   - Improved handling of ended proposals using state file
-   - Reduced API calls by only fetching voting period proposals
-   - Better error handling for RPC endpoint failures
-   - More efficient proposal status tracking
-   - Enhanced thread context preservation for status updates
-
-## Data Files
-
-The bot uses separate JSON files for state management and configuration:
-
-### State Files
-
-Each platform has its own state file that tracks the proposals being monitored:
-
-- `data/proposal_tracking/tally_proposal_state.json`: Tracks Tally proposals
-- `data/proposal_tracking/cosmos_proposal_state.json`: Tracks Cosmos proposals
-- `data/proposal_tracking/snapshot_proposal_state.json`: Tracks Snapshot proposals
-
-Each proposal's state includes:
-- Current status
-- Thread timestamp for Slack messages
-- Alert status
-
-Example state file structure:
-```json
-{
-  "proposal_id": {
-    "status": "active",
-    "thread_ts": "1234567890.123456",
-    "alerted": true
-  }
-}
-```
-
-### Watchlist Files
-
-Each platform has its own watchlist file that defines which projects and networks to monitor:
-
-### Tally Projects (data/watchlists/tally_watchlist.json)
-
-```json
-{
-  "projects": [
-    {
-      "name": "Example Protocol",
-      "description": "Example Protocol Governance",
-      "intel_label": "app",
-      "metadata": {
-        "chain": "ethereum",
-        "governor_address": "0x1234...",
-        "chain_id": "eip155:1",
-        "token_address": "0x5678...",
-        "tally_url": "https://www.tally.xyz/gov/example"
-      }
-    }
-  ]
-}
-```
-
-Required fields for Tally projects:
-- `name`: Display name for the project
-- `description`: Brief description of the project
-- `intel_label`: Category label (e.g., "app" for applications, "net" for networks)
-- `metadata.chain`: Chain name (e.g., "ethereum", "arbitrum", "base")
-- `metadata.governor_address`: Tally governor contract address
-- `metadata.chain_id`: Chain ID in eip155 format
-- `metadata.token_address`: Governance token address
-- `metadata.tally_url`: Tally governance page URL
-
-### Cosmos Networks (data/watchlists/cosmos_watchlist.json)
-
-```json
-{
-  "projects": [
-    {
-      "name": "Example Network",
-      "description": "Example Network Governance",
-      "metadata": {
-        "type": "network",
-        "chain_id": "example-1",
-        "rpc_url": "https://rest.cosmos.directory/example",
-        "explorer_url": "https://www.mintscan.io/example",
-        "explorer_type": "mintscan",  # Optional: "mintscan" or "pingpub" for URL formatting
-        "fallback_rpc_url": "https://alternative-rpc.example"  # Optional: Fallback RPC URL
-      }
-    }
-  ]
-}
-```
-
-Required fields for Cosmos networks:
-- `name`: Display name for the network
-- `metadata.chain_id`: Chain ID (e.g., "cosmoshub-4")
-- `metadata.rpc_url`: REST API URL
-- `metadata.explorer_url`: Block explorer URL
-
-Optional fields for Cosmos networks:
-- `metadata.fallback_rpc_url`: Fallback REST API URL to use if the primary RPC is unavailable or slow
-  - Recommended for chains with known reliability issues
-  - Should be from a different provider than the primary RPC
-  - Will be used automatically if primary RPC fails
-- `metadata.explorer_type`: Type of explorer to use (default: "mintscan")
-  - "mintscan": For networks supported by Mintscan
-  - "pingpub": For networks using Ping.pub explorer
-
-### Snapshot Spaces (data/watchlists/snapshot_watchlist.json)
-
-```json
-{
-  "projects": [
-    {
-      "name": "Example Space",
-      "description": "Example Space Governance",
-      "metadata": {
-        "space": "example.eth",
-        "snapshot_url": "https://snapshot.org/#/example.eth"
-      }
-    }
-  ]
-}
-```
-
-Required fields for Snapshot spaces:
-- `name`: Display name for the space
-- `description`: Brief description of the space
-- `metadata.space`: Snapshot space ID (e.g., "example.eth")
-- `metadata.snapshot_url`: Snapshot space URL
-
-## Alert Types
-
-### Tally Alerts
-
-1. **Proposal Active**
-   - New proposal detected in active state
-   - Includes link to view on Tally
-   - Starting point for thread notifications
-
-2. **Proposal Update**
-   - Status change (e.g., to extended)
-   - Sent as thread reply to original alert
-
-3. **Proposal Ended**
-   - Final status (succeeded, defeated, etc.)
-   - Sent as thread reply
-   - Automatically removes proposal from tracking
-
-### Cosmos Alerts
-
-1. **Proposal Voting**
-   - New proposal in voting period
-   - Includes link to view on Mintscan
-   - Starting point for thread notifications
-
-2. **Proposal Ended**
-   - Voting period ended
-   - Sent as thread reply
-   - Automatically removes proposal from tracking
-
-### Snapshot Alerts
-
-1. **Proposal Active**
-   - New proposal detected in active state
-   - Includes link to view on Snapshot
-   - Starting point for thread notifications
-
-2. **Proposal Ended**
-   - Voting period ended
-   - Sent as thread reply
-   - Automatically removes proposal from tracking
-
-3. **Proposal Deleted**
-   - Proposal no longer exists
-   - Sent as thread reply
-   - Automatically removes proposal from tracking
-
-## Thread Management
-
-The bot maintains thread context for each proposal:
-
-1. Initial alerts create a new message
-2. The Slack message timestamp is stored in the platform-specific state file
-3. Status updates and ended alerts are sent as thread replies
-4. Thread replies are broadcast to the channel with `reply_broadcast=true`
-5. Proposals are removed from state tracking after their final status alert
-
-## Implementation Details
-
-### State Management
-- Each platform uses a separate state file to track proposals
-- State files are automatically created if they don't exist
-- State is persisted between bot restarts
-- Proposals are removed from tracking after reaching final states
-
-### Error Handling
-- Comprehensive error handling at multiple levels:
-  - Individual proposal processing
-  - Network/API calls
-  - State file operations
-- Failed alerts are logged but don't stop the monitoring process
-- Automatic retry with backoff for network errors
-
-### Rate Limiting
-- Tally API: 1 request per 1 second
-- Cosmos REST APIs: 1 second intervals between requests
-- Snapshot API: 1 request per second with exponential backoff
-- Configurable polling intervals via environment variables
-- Automatic waiting between requests to respect rate limits
-
-### Monitoring Modes
-- Can run individual monitors or all monitors together
-- Command-line arguments to select which monitors to run
-- Independent state tracking for each platform
-- Parallel execution of monitors when running multiple
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-MIT 
+For detailed information about each integration's specific features, configuration, and monitoring behavior, please refer to the respective documentation files in the `docs/` directory. 
