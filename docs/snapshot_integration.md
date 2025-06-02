@@ -10,11 +10,15 @@ The Snapshot integration monitors governance proposals across multiple Snapshot 
 
 The client handles all interactions with the Snapshot API:
 
-- **Space Validation**: Uses `check_space_exists` to verify if a space ID is valid before attempting to fetch proposals
+- **Space Validation**: Uses `get_active_proposals` to verify if a space ID is valid and fetch proposals in a single call
 - **Proposal Fetching**: 
-  - `get_active_proposals`: Fetches active proposals for a space
+  - `get_active_proposals`: Fetches active proposals for a space, returns:
+    - `None` if space doesn't exist
+    - `[]` if space exists but has no active proposals
+    - List of proposals if space exists and has active proposals
   - `get_proposal`: Fetches details for a specific proposal
-- **Error Handling**: Returns `None` for invalid spaces and handles rate limiting
+  - `get_proposals_by_ids`: Fetches multiple proposals in a single query for efficient batch processing
+- **Error Handling**: Handles rate limiting and GraphQL errors with appropriate logging
 
 ### 2. SnapshotAlertHandler (`src/integrations/snapshot/alerts.py`)
 
@@ -96,7 +100,34 @@ The watchlist defines which spaces to monitor:
 ### Rate Limiting
 - Implements exponential backoff for rate limit errors
 - Maintains a rate limiter to prevent API throttling
-- Configurable limits and retry attempts
+- Configurable limits and retry attempts:
+  - `SNAPSHOT_RATE_LIMIT`: 1 request per second
+  - `RATE_LIMIT_WINDOW`: 1.0 second window
+  - `MAX_RETRIES`: 3 maximum retries
+  - `INITIAL_BACKOFF`: 5.0 seconds initial backoff
+  - `BATCH_SIZE`: 5 spaces per batch
+- Batch processing of spaces to minimize API calls
+- Delays between batches to avoid rate limits
+
+## Performance Optimizations
+
+### Batch Processing
+- Proposals are grouped by space to minimize API calls
+- Spaces are processed in batches of 5 to manage rate limits
+- Multiple proposals are fetched in a single query using `get_proposals_by_ids`
+- Delays between batches (2 seconds) to prevent rate limiting
+
+### Space Checking
+- Space existence is checked as part of proposal fetching
+- No separate API calls for space validation
+- Invalid spaces are tracked to avoid repeated checks
+- Spaces with no active proposals are distinguished from non-existent spaces
+
+### Rate Limit Management
+- Exponential backoff for rate limit errors
+- Batch-level retry logic
+- Configurable delays between requests
+- Clear logging of rate limit events and retries
 
 ## Testing
 
@@ -136,4 +167,10 @@ The watchlist defines which spaces to monitor:
 3. **Alert Handling**:
    - Review space_not_detected alerts promptly
    - Verify thread context is maintained for proposal updates
-   - Monitor alert frequency and adjust rate limits if needed 
+   - Monitor alert frequency and adjust rate limits if needed
+
+4. **Performance Monitoring**:
+   - Monitor rate limit occurrences
+   - Track batch processing times
+   - Watch for any patterns in space validation failures
+   - Adjust batch sizes and delays if needed 
