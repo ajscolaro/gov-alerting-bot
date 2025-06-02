@@ -12,6 +12,7 @@ from common.alerts.slack import SlackAlertSender
 from common.alerts.base import AlertConfig
 from monitor.monitor_tally import monitor_tally_proposals
 from monitor.monitor_cosmos import monitor_cosmos_proposals
+from monitor.monitor_snapshot import monitor_snapshot_proposals
 
 # Configure logging
 logging.basicConfig(
@@ -28,7 +29,8 @@ async def run_monitors(monitors: List[str]):
         slack_channel=os.getenv("SLACK_CHANNEL"),
         disable_link_previews=True,
         enabled_alert_types=["proposal_active", "proposal_update", "proposal_ended",
-                           "proposal_voting", "proposal_ended"]
+                           "proposal_voting", "proposal_ended", "proposal_deleted",
+                           "space_not_detected"]
     )
     
     if not config.slack_bot_token or not config.slack_channel:
@@ -49,6 +51,9 @@ async def run_monitors(monitors: List[str]):
     if "cosmos" in monitors:
         logger.info("Starting Cosmos monitor")
         tasks.append(monitor_cosmos_proposals(slack_sender, continuous=True, check_interval=check_interval))
+    if "snapshot" in monitors:
+        logger.info("Starting Snapshot monitor")
+        tasks.append(monitor_snapshot_proposals(slack_sender, continuous=True, check_interval=check_interval))
     
     if not tasks:
         logger.error("No valid monitors specified")
@@ -68,8 +73,8 @@ async def main():
     parser.add_argument(
         "--monitors",
         nargs="+",
-        choices=["tally", "cosmos"],
-        default=["tally", "cosmos"],
+        choices=["tally", "cosmos", "snapshot"],
+        default=["tally", "cosmos", "snapshot"],
         help="Specify which monitors to run (default: all)"
     )
     args = parser.parse_args()
