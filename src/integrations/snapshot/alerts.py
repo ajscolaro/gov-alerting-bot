@@ -10,31 +10,39 @@ class SnapshotAlertHandler(BaseAlertHandler):
     
     def get_alert_types(self) -> List[str]:
         """Return list of alert types supported by this handler."""
-        return ["proposal_active", "proposal_ended", "proposal_deleted"]
+        return ["proposal_active", "proposal_ended", "proposal_deleted", "space_not_detected"]
     
     def format_alert(self, alert_type: str, data: Dict) -> Dict:
         """Format an alert for Snapshot proposals."""
         project_name = data["project_name"]
-        proposal = data["proposal"]
-        snapshot_url = data["snapshot_url"]
         
         # Log alert formatting
-        logger.info(f"Formatting {alert_type} alert for {project_name} proposal {proposal['id']}")
+        logger.info(f"Formatting {alert_type} alert for {project_name}")
         
-        # Determine alert title based on type
-        if alert_type == "proposal_active":
-            title = f"{project_name} Snapshot Proposal Active"
-            button_text = "View Proposal"
-        elif alert_type == "proposal_ended":
-            title = f"{project_name} Snapshot Proposal Ended"
-            button_text = "View Proposal"
-        else:  # proposal_deleted
-            title = f"{project_name} Snapshot Proposal Deleted"
-            button_text = None
-        
-        # Use shared utility: header for title, context for description (smaller), divider, and actions for button
-        description = proposal["title"]
-        button_url = f"{snapshot_url}/proposal/{proposal['id']}" if button_text else None
+        # Handle space not detected alert type
+        if alert_type == "space_not_detected":
+            title = f"Admin Action Required: {project_name} Space Not Detected"
+            description = f"The Snapshot space '{data['proposal']['space']}' could not be found. Please verify the space ID in the watchlist."
+            button_text = "View Space"
+            button_url = data["snapshot_url"]
+        else:
+            # Handle proposal alerts
+            proposal = data["proposal"]
+            snapshot_url = data["snapshot_url"]
+            
+            # Determine alert title based on type
+            if alert_type == "proposal_active":
+                title = f"{project_name} Snapshot Proposal Active"
+                button_text = "View Proposal"
+            elif alert_type == "proposal_ended":
+                title = f"{project_name} Snapshot Proposal Ended"
+                button_text = "View Proposal"
+            else:  # proposal_deleted
+                title = f"{project_name} Snapshot Proposal Deleted"
+                button_text = None
+            
+            description = proposal["title"]
+            button_url = f"{snapshot_url}/proposal/{proposal['id']}" if button_text else None
         
         message = {
             "unfurl_links": not self.config.disable_link_previews,
@@ -45,15 +53,24 @@ class SnapshotAlertHandler(BaseAlertHandler):
         }
         
         # For non-active alerts, add thread context if available
-        if alert_type != "proposal_active" and "thread_ts" in data:
+        if alert_type not in ["proposal_active", "space_not_detected"] and "thread_ts" in data:
             message["thread_ts"] = data["thread_ts"]
             message["reply_broadcast"] = True
             logger.info(f"Sending {alert_type} as thread reply with ts: {data['thread_ts']}")
         
         return message
     
-    def should_alert(self, proposal: Dict, previous_status: str = None) -> bool:
+    def should_alert(self, proposal: Dict = None, previous_status: str = None, space_id: str = None, alert_type: str = None) -> bool:
         """Determine if an alert should be sent."""
+        # Handle space not detected alert
+        if alert_type == "space_not_detected":
+            logger.info(f"Should send space_not_detected alert")
+            return True
+            
+        # Handle proposal alerts
+        if proposal is None:
+            return False
+            
         # Log the decision making process
         logger.info(f"Checking if should alert for proposal {proposal['id']} (status: {proposal['state']}, previous: {previous_status})")
         

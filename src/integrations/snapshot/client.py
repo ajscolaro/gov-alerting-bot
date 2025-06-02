@@ -44,8 +44,37 @@ class SnapshotClient:
             logger.error(f"Unexpected error making request to Snapshot API: {str(e)}")
             raise
 
-    async def get_active_proposals(self, space: str) -> List[Dict]:
+    async def check_space_exists(self, space: str) -> bool:
+        """Check if a space exists in Snapshot."""
+        query = """
+        query Space($space: String!) {
+          space(id: $space) {
+            id
+            name
+          }
+        }
+        """
+        
+        variables = {"space": space}
+        try:
+            response = await self._make_request(query, variables)
+            
+            if "errors" in response:
+                logger.error(f"Error checking space {space}: {response['errors']}")
+                return False
+                
+            return response.get("data", {}).get("space") is not None
+        except Exception as e:
+            logger.error(f"Error checking if space {space} exists: {str(e)}")
+            return False
+
+    async def get_active_proposals(self, space: str) -> Optional[List[Dict]]:
         """Get active proposals for a space"""
+        # First check if the space exists
+        if not await self.check_space_exists(space):
+            logger.error(f"Space {space} not found")
+            return None
+
         query = """
         query Proposals($space: String!) {
           proposals(
