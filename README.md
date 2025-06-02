@@ -131,23 +131,20 @@ TEST_CHECK_INTERVAL=60  # Optional: Polling interval for test mode
 
 5. Run the monitoring scripts:
 ```bash
-# Run all monitors
+# Run all monitors in production mode (continuous)
 python src/monitor.py
 
-# Run specific monitors
-python src/monitor.py --monitors tally cosmos snapshot
+# Run specific monitors in production mode
+python src/monitor.py --monitors tally cosmos snapshot sky
 
-# Run individual monitors directly (for testing)
+# Run individual monitors in test mode (runs once and exits)
 python src/monitor/monitor_tally.py
 python src/monitor/monitor_cosmos.py
 python src/monitor/monitor_snapshot.py
-
-# Run in continuous mode (all monitors)
-python src/monitor.py --continuous
-
-# Run specific monitors in continuous mode
-python src/monitor.py --continuous --monitors tally cosmos snapshot
+python src/monitor/monitor_sky.py
 ```
+
+Note: When running through `monitor.py`, all monitors run continuously in production mode. When running individual monitor scripts directly, they run in test mode (once and exit).
 
 ## Common Features
 
@@ -170,10 +167,11 @@ Example Slack Block structure:
 ```
 
 ### State Management
-- Each platform maintains its own state file in `data/proposal_tracking/`
-- Test state files are in `data/test_proposal_tracking/`
-- Admin alerts are tracked in `data/proposal_tracking/admin_alerts.json`
+- Each platform maintains its own state file in `data/proposal_tracking/` for production
+- Test state files are in `data/test_proposal_tracking/` for testing
 - State files are automatically created if they don't exist
+- Production mode is used when running through `monitor.py`
+- Test mode is used when running individual monitor scripts directly
 - Proposals are tracked with unique identifiers
 - Thread context is preserved for all status updates
 - Proposals are automatically removed after reaching final states

@@ -112,18 +112,23 @@ class SkyClient:
                 end_time = None
                 if data.get("spellData", {}).get("expiration"):
                     end_time = datetime.fromisoformat(data.get("spellData", {}).get("expiration", "").replace("Z", "+00:00"))
-            else:
+            else:  # poll
+                # Ensure timezone-aware datetimes for polls
                 start_time = datetime.fromisoformat(data.get("startDate", "").replace("Z", "+00:00"))
                 end_time = None
                 if data.get("endDate"):
                     end_time = datetime.fromisoformat(data.get("endDate", "").replace("Z", "+00:00"))
-            
-            # Determine status
-            status = "active"
-            if proposal_type == "poll":
-                if end_time and end_time < datetime.now():
+                
+                # For polls, compare with timezone-aware current time
+                current_time = datetime.now().astimezone()
+                if end_time and end_time < current_time:
                     status = "ended"
-            else:  # executive vote
+                else:
+                    status = "active"
+            
+            # Determine status for executive votes
+            if proposal_type == "executive":
+                status = "active"
                 spell_data = data.get("spellData", {})
                 if spell_data.get("hasBeenCast"):
                     status = "executed"

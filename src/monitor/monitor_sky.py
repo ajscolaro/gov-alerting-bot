@@ -23,23 +23,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_state_file_path() -> str:
-    """Determine the appropriate state file path based on execution context."""
-    # Check if we're being run directly (not through monitor.py)
-    is_test_mode = os.path.basename(sys.argv[0]) in ["monitor_snapshot.py", "monitor_tally.py", "monitor_cosmos.py", "monitor_sky.py"]
-    
-    if is_test_mode:
-        # Use test state file when running individually
-        return "data/test_proposal_tracking/sky_proposal_state.json"
-    else:
-        # Use normal state file when running through monitor.py
-        return "data/proposal_tracking/sky_proposal_state.json"
-
 class SkyProposalTracker:
     """Tracks Sky proposals and their status changes with file-based persistence."""
     
-    def __init__(self, continuous: bool = False):
-        self.state_file = "data/test_proposal_tracking/sky_proposal_state.json" if not continuous else "data/proposal_tracking/sky_proposal_state.json"
+    def __init__(self, continuous: bool = False, is_test_mode: Optional[bool] = None):
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        self.state_file = "data/test_proposal_tracking/sky_proposal_state.json" if self.is_test_mode else "data/proposal_tracking/sky_proposal_state.json"
         self.proposals: Dict[str, Dict] = self._load_state()
         logger.info(f"Loaded state from {self.state_file}: {len(self.proposals)} proposals")
     
@@ -225,7 +215,12 @@ async def process_sky_proposal_alert(
         )
         logger.info(f"Updated proposal status without alert: {proposal.status}")
 
-async def monitor_sky_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
+async def monitor_sky_proposals(
+    slack_sender: Optional[SlackAlertSender] = None, 
+    continuous: bool = False, 
+    check_interval: Optional[int] = None,
+    is_test_mode: Optional[bool] = None
+):
     """Monitor Sky proposals and send alerts.
     
     Args:
@@ -233,20 +228,25 @@ async def monitor_sky_proposals(slack_sender: Optional[SlackAlertSender] = None,
         continuous: If True, runs in a continuous loop. If False, runs once and exits.
         check_interval: Number of seconds to wait between checks when running continuously.
                       Required if continuous is True, ignored otherwise.
+        is_test_mode: If True, uses test files and test channel. If None, derived from continuous
+                     for backward compatibility.
     """
     if continuous and check_interval is None:
         raise ValueError("check_interval is required when continuous is True")
         
+    # For backward compatibility, derive is_test_mode from continuous if not provided
+    is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        
     # Initialize components
     config = AlertConfig(
         slack_bot_token=settings.SLACK_BOT_TOKEN,
-        slack_channel=settings.TEST_SLACK_CHANNEL if not continuous else settings.SLACK_CHANNEL,
+        slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
         disable_link_previews=False
     )
     if slack_sender is None:
         slack_sender = SlackAlertSender(config)
     alert_handler = SkyAlertHandler(config)
-    tracker = SkyProposalTracker(continuous)
+    tracker = SkyProposalTracker(continuous=continuous, is_test_mode=is_test_mode)
     
     # Load watchlist
     sky_projects = await load_sky_watchlist()
@@ -307,7 +307,8 @@ async def main():
         # Ensure test directory exists
         os.makedirs("data/test_proposal_tracking", exist_ok=True)
         
-        await monitor_sky_proposals(continuous=False)
+        # When running directly, use test mode
+        await monitor_sky_proposals(continuous=False, is_test_mode=True)
     except KeyboardInterrupt:
         logger.info("Sky monitoring stopped by user")
     except Exception as e:
