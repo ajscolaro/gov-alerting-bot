@@ -139,6 +139,12 @@ python src/monitor.py --monitors tally cosmos snapshot
 python src/monitor/monitor_tally.py
 python src/monitor/monitor_cosmos.py
 python src/monitor/monitor_snapshot.py
+
+# Run in continuous mode (all monitors)
+python src/monitor.py --continuous
+
+# Run specific monitors in continuous mode
+python src/monitor.py --continuous --monitors tally cosmos snapshot
 ```
 
 ## Common Features
