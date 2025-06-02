@@ -100,7 +100,9 @@ SLACK_BOT_TOKEN=xoxb-your-token
 SLACK_CHANNEL=your-channel-id
 TEST_SLACK_CHANNEL=your-test-channel-id  # Optional: Channel for testing individual monitors
 TALLY_API_KEY=your-tally-api-key
+TEST_TALLY_API_KEY=your-test-tally-api-key  # Optional: API key for testing
 CHECK_INTERVAL=60  # Polling interval in seconds
+TEST_CHECK_INTERVAL=60  # Optional: Polling interval for test mode
 ```
 
 4. Set up data files:

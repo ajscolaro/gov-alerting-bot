@@ -38,8 +38,10 @@ def get_state_file_path() -> str:
 class TallyProposalTracker:
     """Tracks Tally proposals and their status changes with file-based persistence."""
     
-    def __init__(self, continuous: bool = False):
-        self.state_file = "data/test_proposal_tracking/tally_proposal_state.json" if not continuous else "data/proposal_tracking/tally_proposal_state.json"
+    def __init__(self, continuous: bool = False, is_test_mode: Optional[bool] = None):
+        # For backward compatibility, derive is_test_mode from continuous if not provided
+        self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        self.state_file = "data/test_proposal_tracking/tally_proposal_state.json" if self.is_test_mode else "data/proposal_tracking/tally_proposal_state.json"
         self.proposals: Dict[str, Dict] = self._load_state()
         logger.info(f"Loaded state from {self.state_file}: {len(self.proposals)} proposals")
     
@@ -190,7 +192,12 @@ async def process_tally_proposal_alert(
         tracker.update_proposal(proposal.id, proposal.status, current.get("thread_ts"), project_id=project["name"])
         logger.info(f"Updated proposal status without alert: {proposal.status}")
 
-async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = None, continuous: bool = False, check_interval: Optional[int] = None):
+async def monitor_tally_proposals(
+    slack_sender: Optional[SlackAlertSender] = None, 
+    continuous: bool = False, 
+    check_interval: Optional[int] = None,
+    is_test_mode: Optional[bool] = None
+):
     """Monitor Tally proposals and send alerts.
     
     Args:
@@ -198,20 +205,25 @@ async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = Non
         continuous: If True, runs in a continuous loop. If False, runs once and exits.
         check_interval: Number of seconds to wait between checks when running continuously.
                       Required if continuous is True, ignored otherwise.
+        is_test_mode: If True, uses test files and test channel. If None, derived from continuous
+                     for backward compatibility.
     """
     if continuous and check_interval is None:
         raise ValueError("check_interval is required when continuous is True")
         
+    # For backward compatibility, derive is_test_mode from continuous if not provided
+    is_test_mode = not continuous if is_test_mode is None else is_test_mode
+        
     # Initialize components
     config = AlertConfig(
         slack_bot_token=settings.SLACK_BOT_TOKEN,
-        slack_channel=settings.TEST_SLACK_CHANNEL if not continuous else settings.SLACK_CHANNEL,
+        slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
         disable_link_previews=False
     )
     if slack_sender is None:
         slack_sender = SlackAlertSender(config)
     alert_handler = TallyAlertHandler(config)
-    tracker = TallyProposalTracker(continuous)
+    tracker = TallyProposalTracker(continuous=continuous, is_test_mode=is_test_mode)
     
     # Load watchlist
     tally_projects = await load_tally_watchlist()
@@ -222,7 +234,7 @@ async def monitor_tally_proposals(slack_sender: Optional[SlackAlertSender] = Non
     
     logger.info(f"Loaded {len(tally_projects)} Tally projects for monitoring")
     
-    async with TallyClient() as client:
+    async with TallyClient(is_test_mode=is_test_mode) as client:
         while True:
             try:
                 for project in tally_projects:
