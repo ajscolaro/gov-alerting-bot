@@ -51,6 +51,10 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 │   │   │   └── slack.py      # Slack alert sender
 │   │   ├── models.py         # Shared data models
 │   │   ├── config.py         # Configuration handling
+│   │   ├── sheets/           # Google Sheets integration
+│   │   │   ├── client.py     # Google Sheets API client
+│   │   │   ├── models.py     # Data models for sheet rows
+│   │   │   └── sync.py       # Watchlist sync logic
 │   │   └── __init__.py
 │   ├── integrations/
 │   │   ├── cosmos/           # Cosmos SDK integration
@@ -145,6 +149,70 @@ python src/monitor/monitor_sky.py
 ```
 
 Note: When running through `monitor.py`, all monitors run continuously in production mode. When running individual monitor scripts directly, they run in test mode (once and exit).
+
+## Google Sheets Watchlist Sync
+
+This project supports syncing watchlists from a Google Sheet, allowing you to manage Tally, Cosmos, Snapshot, and Sky integrations in one place.
+
+### Setup Steps
+
+1. **Create a Google Cloud Project and Service Account**
+   - Go to https://console.cloud.google.com/
+   - Create a new project (or use an existing one)
+   - Enable the Google Sheets API
+   - Create a service account and download the credentials JSON file
+
+2. **Share Your Google Sheet**
+   - Create a Google Sheet with separate tabs named `Tally`, `Cosmos`, `Snapshot`, and `Sky`
+   - Add the required columns for each integration (see below)
+   - Share the sheet with your service account's email (found in the credentials JSON)
+
+3. **Store Credentials Securely**
+   - Place the credentials file at `data/watchlists/govbot-google-sheets-credentials.json`
+   - Add this line to your `.env` file:
+     ```env
+     GOOGLE_SHEETS_CREDENTIALS=data/watchlists/govbot-google-sheets-credentials.json
+     ```
+   - Ensure the credentials file is listed in `.gitignore`
+
+4. **Set Up Your Sheet Tabs**
+   - **Tally:**
+     ```
+     name | description | intel_label | chain | governor_address | chain_id | token_address | tally_url
+     ```
+   - **Cosmos:**
+     ```
+     name | description | intel_label | chain_id | rpc_url | explorer_url | fallback_rpc_url | explorer_type
+     ```
+   - **Snapshot:**
+     ```
+     name | description | intel_label | space | snapshot_url
+     ```
+   - **Sky:**
+     ```
+     name | description | intel_label | poll_url | executive_url
+     ```
+
+5. **Run the Sync Script**
+   - Activate your virtual environment
+   - Run:
+     ```bash
+     ./src/scripts/sync_watchlists.py \
+       --spreadsheet-id <YOUR_SPREADSHEET_ID> \
+       --watchlist-dir data/watchlists \
+       --last-sync-file data/watchlists/.last_sync \
+       --force \
+       --verbose
+     ```
+   - The script will use the credentials path from your `.env` if `--credentials` is not specified.
+
+6. **Automate (Optional)**
+   - Add a cron job to run the sync script daily to keep your watchlists up to date.
+
+### Notes
+- The script will update `data/watchlists/tally_watchlist.json`, `cosmos_watchlist.json`, etc. to match your Google Sheet.
+- The sync logic uses a unique key for each integration (e.g., `chain:governor_address` for Tally) to determine adds/updates/removals.
+- Always keep your sheet columns in the expected order for each integration.
 
 ## Common Features
 

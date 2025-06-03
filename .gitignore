@@ -51,4 +51,7 @@ ehthumbs.db
 Thumbs.db
 
 # Test Scripts
-test_monitor.py 
+test_monitor.py
+
+# Google Sheets credentials
+/data/watchlists/govbot-google-sheets-credentials.json 
