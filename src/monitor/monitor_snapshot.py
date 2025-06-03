@@ -229,8 +229,11 @@ async def process_snapshot_proposal_alert(
 ) -> Optional[Dict]:
     """Process a Snapshot proposal alert."""
     try:
+        # Get the space identifier from project metadata
+        space = project["metadata"]["space"]
+        
         # Log full proposal state for debugging
-        logger.info(f"Processing alert for proposal {proposal_id} (project: {project['name']})")
+        logger.info(f"Processing alert for proposal {proposal_id} (space: {space})")
         logger.info(f"Current state: {proposal.get('state')}, Previous state: {previous_status}")
         logger.info(f"Thread TS: {thread_ts}")
         
@@ -255,7 +258,7 @@ async def process_snapshot_proposal_alert(
             
             # For space_not_detected alerts, ensure proposal has space field
             if alert_type == "space_not_detected" and "space" not in proposal:
-                proposal["space"] = project["metadata"]["space"]
+                proposal["space"] = space
             
             # Format and send the alert
             alert_data = {
@@ -295,11 +298,11 @@ async def process_snapshot_proposal_alert(
                                 proposal["state"],
                                 result["ts"],
                                 True,
-                                project_id=project["metadata"]["space"]
+                                project_id=space  # Use space consistently
                             )
                         elif alert_type == "proposal_ended":
                             # For ended proposals, remove from tracking
-                            tracker.remove_proposal(proposal_id, project_id=project["metadata"]["space"])
+                            tracker.remove_proposal(proposal_id, project_id=space)  # Use space consistently
                         else:
                             # For other alerts (like deleted), update status but keep thread context
                             tracker.update_proposal(
@@ -307,7 +310,7 @@ async def process_snapshot_proposal_alert(
                                 proposal["state"],
                                 thread_ts,  # Keep existing thread context
                                 True,
-                                project_id=project["metadata"]["space"]
+                                project_id=space  # Use space consistently
                             )
                 else:
                     logger.error(f"Failed to send alert for proposal {proposal_id}")
@@ -378,14 +381,16 @@ async def check_proposals(
             
         # Process proposals
         for proposal in proposals:
+            # Get current state using space as project_id
+            current = proposal_tracker.get_proposal(proposal["id"], project_id=space)
             await process_snapshot_proposal_alert(
                 proposal=proposal,
                 project=project,
-                previous_status=None,
+                previous_status=current["status"] if current else None,
                 alert_handler=alert_handler,
                 alert_sender=slack_sender,
                 snapshot_url=project["metadata"]["snapshot_url"],
-                thread_ts=None,
+                thread_ts=current.get("thread_ts") if current else None,
                 tracker=proposal_tracker,
                 proposal_id=proposal["id"]
             )
