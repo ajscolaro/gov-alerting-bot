@@ -44,24 +44,113 @@ class SnapshotClient:
             logger.error(f"Unexpected error making request to Snapshot API: {str(e)}")
             raise
 
-    async def check_space_exists(self, space: str) -> bool:
-        """Check if a space exists in Snapshot. This method is kept for backward compatibility
-        but is no longer used internally."""
-        proposals = await self.get_active_proposals(space)
-        return proposals is not None
-
-    async def get_active_proposals(self, space: str) -> Optional[List[Dict]]:
-        """Get active proposals for a space. Returns:
-        - None if the space doesn't exist
-        - [] if the space exists but has no active proposals
-        - List of proposals if the space exists and has active proposals
+    async def validate_space(self, space: str, max_retries: int = 3) -> Optional[bool]:
+        """Validate if a space exists in Snapshot with proper error handling and retries.
+        
+        Args:
+            space: The space ID to validate
+            max_retries: Maximum number of retries for non-rate-limit errors
+            
+        Returns:
+            Optional[bool]: 
+                - True if space exists
+                - False if space confirmed invalid
+                - None if error occurred (not necessarily invalid)
         """
         query = """
-        query Proposals($space: String!) {
-          space(id: $space) {
+        query Space($id: String!) {
+          space(id: $id) {
             id
             name
           }
+        }
+        """
+        
+        variables = {"id": space}
+        retries = 0
+        
+        while retries <= max_retries:
+            try:
+                async with asyncio.timeout(30):  # 30 second timeout
+                    async with self.session.post(
+                        self.base_url,
+                        json={"query": query, "variables": variables},
+                        headers=self.headers
+                    ) as response:
+                        response.raise_for_status()
+                        data = await response.json()
+                        
+                        if "errors" in data:
+                            # Check if it's a rate limit error
+                            for error in data.get("errors", []):
+                                if "Too Many Requests" in str(error):
+                                    logger.warning(f"Rate limited while validating space {space}, will retry")
+                                    raise aiohttp.ClientResponseError(
+                                        status=429,
+                                        message="Too Many Requests",
+                                        request_info=None,
+                                        history=None
+                                    )
+                            # For other GraphQL errors, log but don't treat as space not found
+                            logger.error(f"GraphQL errors validating space {space}: {data['errors']}")
+                            return None
+                        
+                        # If space doesn't exist, the space field will be null
+                        space_data = data.get("data", {}).get("space")
+                        if space_data is None:
+                            logger.info(f"Space {space} confirmed not found")
+                            return False
+                            
+                        logger.info(f"Space {space} validated successfully")
+                        return True
+                        
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout validating space {space}")
+                if retries < max_retries:
+                    retries += 1
+                    await asyncio.sleep(2 ** retries)  # Exponential backoff
+                    continue
+                return None
+                
+            except aiohttp.ClientResponseError as e:
+                if e.status == 429:
+                    # Re-raise rate limit errors to be handled by the rate limiter
+                    raise
+                logger.error(f"HTTP error validating space {space}: {str(e)}")
+                if retries < max_retries:
+                    retries += 1
+                    await asyncio.sleep(2 ** retries)  # Exponential backoff
+                    continue
+                return None
+                
+            except Exception as e:
+                logger.error(f"Unexpected error validating space {space}: {str(e)}")
+                if retries < max_retries:
+                    retries += 1
+                    await asyncio.sleep(2 ** retries)  # Exponential backoff
+                    continue
+                return None
+                
+        logger.error(f"Max retries exceeded validating space {space}")
+        return None
+
+    async def get_active_proposals(self, space: str) -> Optional[List[Dict]]:
+        """Get active proposals for a space. Returns:
+        - None if there was an error (not necessarily space not found)
+        - [] if the space exists but has no active proposals
+        - List of proposals if the space exists and has active proposals
+        """
+        # First validate the space exists
+        space_valid = await self.validate_space(space)
+        if space_valid is False:  # Explicitly False means space doesn't exist
+            return None
+        elif space_valid is None:  # None means error occurred
+            logger.error(f"Error validating space {space}, skipping proposal fetch")
+            return None
+            
+        # Space exists, proceed with fetching proposals
+        query = """
+        query Proposals($space: String!) {
           proposals(
             first: 1000,
             where: {
@@ -103,17 +192,11 @@ class SnapshotClient:
                             request_info=None,
                             history=None
                         )
-                # For other GraphQL errors, log but return None (space might not exist)
-                logger.error(f"GraphQL errors: {response['errors']}")
+                # For other GraphQL errors, log but return None (error occurred)
+                logger.error(f"GraphQL errors getting proposals for {space}: {response['errors']}")
                 return None
                 
-            data = response.get("data", {})
-            # If space doesn't exist, the space field will be null
-            if data.get("space") is None:
-                logger.info(f"Space {space} not found")
-                return None
-                
-            return data.get("proposals", [])
+            return response.get("data", {}).get("proposals", [])
             
         except aiohttp.ClientResponseError as e:
             if e.status == 429:

@@ -10,10 +10,13 @@ The Snapshot integration monitors governance proposals across multiple Snapshot 
 
 The client handles all interactions with the Snapshot API:
 
-- **Space Validation**: Uses `get_active_proposals` to verify if a space ID is valid and fetch proposals in a single call
+- **Space Validation**: Uses `validate_space` to explicitly check if a space ID is valid
+  - Returns `True` if space exists
+  - Returns `False` if space explicitly doesn't exist
+  - Returns `None` if an error occurred during validation
 - **Proposal Fetching**: 
   - `get_active_proposals`: Fetches active proposals for a space, returns:
-    - `None` if space doesn't exist
+    - `None` if an error occurred during fetching
     - `[]` if space exists but has no active proposals
     - List of proposals if space exists and has active proposals
   - `get_proposal`: Fetches details for a specific proposal
@@ -92,10 +95,18 @@ The watchlist defines which spaces to monitor:
 
 ### Invalid Spaces
 1. When a space ID is invalid:
-   - The system sends a "space_not_detected" alert
+   - The system first validates the space using `validate_space`
+   - Admin alerts are ONLY triggered when `validate_space` returns `False` (space explicitly doesn't exist)
+   - Errors during validation (`None` return) are logged but do not trigger alerts
    - The alert includes the invalid space ID and a link to verify
    - The space is marked as alerted in `admin_alerts.json`
    - Future checks for this space are skipped until the watchlist is updated
+
+2. Error Handling:
+   - Network errors or API failures during space validation do not trigger admin alerts
+   - Errors during proposal fetching are logged but do not trigger alerts
+   - Rate limit errors are handled with exponential backoff
+   - All errors are logged with appropriate context for debugging
 
 ### Rate Limiting
 - Implements exponential backoff for rate limit errors
@@ -139,18 +150,16 @@ The watchlist defines which spaces to monitor:
 ### Common Test Scenarios
 1. **Invalid Space**:
    - Set an invalid space ID in the watchlist
-   - Verify alert is sent and space is marked as alerted
+   - Verify alert is ONLY sent when `validate_space` returns `False`
+   - Verify no alert is sent for validation errors (`None` return)
+   - Verify space is marked as alerted in `admin_alerts.json`
    - Verify subsequent runs skip the invalid space
 
-2. **Deleted Proposal**:
-   - Add a proposal to the state file
-   - Change the proposal ID to a non-existent one
-   - Verify delete alert is sent as a thread reply
-
-3. **Ended Proposal**:
-   - Add an active proposal to the state file
-   - Change its state to "closed"
-   - Verify end alert is sent as a thread reply
+2. **Space Validation Errors**:
+   - Simulate network errors during space validation
+   - Verify no admin alert is sent
+   - Verify error is logged appropriately
+   - Verify monitoring continues for other spaces
 
 ## Best Practices
 
@@ -158,19 +167,25 @@ The watchlist defines which spaces to monitor:
    - Keep space IDs and snapshot URLs in sync
    - Use consistent naming conventions
    - Validate space IDs before adding to watchlist
+   - Monitor admin alerts for invalid spaces
+   - Update watchlist promptly when invalid spaces are detected
 
 2. **State Management**:
    - Don't manually modify state files in production
    - Use test mode for validation
    - Monitor state file size and clean up old entries if needed
+   - Review `admin_alerts.json` periodically to identify stale invalid spaces
 
 3. **Alert Handling**:
    - Review space_not_detected alerts promptly
+   - Verify alerts are only triggered for explicitly invalid spaces
+   - Monitor error logs for validation failures
    - Verify thread context is maintained for proposal updates
    - Monitor alert frequency and adjust rate limits if needed
 
 4. **Performance Monitoring**:
    - Monitor rate limit occurrences
    - Track batch processing times
-   - Watch for any patterns in space validation failures
+   - Watch for patterns in space validation failures
+   - Monitor error rates for space validation
    - Adjust batch sizes and delays if needed 

@@ -317,159 +317,73 @@ async def process_snapshot_proposal_alert(
 
 async def check_proposals(
     client: SnapshotClient,
-    tracker: SnapshotProposalTracker,
-    space_tracker: SpaceAlertTracker,
     alert_handler: SnapshotAlertHandler,
-    alert_sender: SlackAlertSender,
-    snapshot_url: Optional[str],
-    rate_limiter: RateLimiter
+    space_alert_tracker: SpaceAlertTracker,
+    project: Dict,
+    proposal_tracker: SnapshotProposalTracker,
+    rate_limiter: RateLimiter,
+    slack_sender: SlackAlertSender,
+    is_test_mode: bool = False
 ) -> None:
-    """Check all tracked proposals for updates."""
+    """Check all tracked proposals for updates and process alerts."""
+    space = project["metadata"]["space"]
+    project_name = project["name"]
+    
+    # Skip if we've already alerted about this space
+    if space_alert_tracker.has_alerted(space):
+        logger.info(f"Skipping already alerted space: {space} ({project_name})")
+        return
+        
+    logger.info(f"Checking space {space} for project {project_name}")
+    
     try:
-        # Get all tracked proposals and create a copy of the keys
-        proposals = tracker.get_all_proposals()
-        proposal_keys = list(proposals.keys())  # Create a copy of keys to iterate over
-        logger.info(f"Checking {len(proposals)} tracked proposals")
-        
-        # Load watchlist to get project objects
-        snapshot_projects = await load_snapshot_watchlist()
-        project_map = {p["metadata"]["space"]: p for p in snapshot_projects}
-        
-        # Group proposals by space to minimize API calls
-        proposals_by_space = {}
-        for proposal_id in proposal_keys:
-            space, actual_proposal_id = proposal_id.split(":", 1) if ":" in proposal_id else (None, proposal_id)
-            if space and space in project_map:
-                if space not in proposals_by_space:
-                    proposals_by_space[space] = []
-                proposals_by_space[space].append((proposal_id, actual_proposal_id, proposals[proposal_id]))
-        
-        # Process proposals by space in batches
-        spaces = list(proposals_by_space.keys())
-        for i in range(0, len(spaces), BATCH_SIZE):
-            batch_spaces = spaces[i:i + BATCH_SIZE]
-            logger.info(f"Processing batch {i//BATCH_SIZE + 1} of {(len(spaces) + BATCH_SIZE - 1)//BATCH_SIZE}")
+        # First validate the space exists
+        space_valid = await client.validate_space(space)
+        if space_valid is False:  # Explicitly False means space doesn't exist
+            logger.warning(f"Space {space} ({project_name}) not found, sending admin alert")
+            await process_snapshot_proposal_alert(
+                proposal={"id": "invalid", "state": "invalid", "title": "Invalid Space", "space": space},
+                project=project,
+                previous_status=None,
+                alert_handler=alert_handler,
+                alert_sender=slack_sender,
+                snapshot_url=project["metadata"]["snapshot_url"],
+                thread_ts=None,
+                tracker=proposal_tracker,
+                proposal_id=None,
+                alert_type="space_not_detected"
+            )
+            space_alert_tracker.mark_alerted(space)
+            return
+        elif space_valid is None:  # None means error occurred
+            logger.error(f"Error validating space {space} ({project_name}), skipping proposal check")
+            return
             
-            # Process each space in the batch
-            for space in batch_spaces:
-                project = project_map[space]
-                space_proposals = proposals_by_space[space]
-                logger.info(f"Processing {len(space_proposals)} proposals for space {space}")
-                
-                # Get all proposal IDs for this space
-                proposal_ids = [actual_id for _, actual_id, _ in space_proposals]
-                
-                try:
-                    # Acquire rate limit token
-                    await rate_limiter.acquire()
-                    
-                    try:
-                        # Get all proposals for this space in one query
-                        proposals_data = await client.get_proposals_by_ids(proposal_ids)
-                        
-                        # Process each proposal
-                        for proposal_id, actual_proposal_id, proposal_data in space_proposals:
-                            try:
-                                current_proposal = proposals_data.get(actual_proposal_id)
-                                
-                                if current_proposal is None:
-                                    # Only mark as deleted if we're certain it's not a rate limit error
-                                    logger.info(f"Proposal {proposal_id} was deleted - current state: {proposal_data.get('status')}")
-                                    deleted_proposal = {
-                                        "id": actual_proposal_id,
-                                        "state": "deleted",
-                                        "title": proposal_data.get("title", "Unknown Proposal")
-                                    }
-                                    
-                                    # Process the alert
-                                    result = await process_snapshot_proposal_alert(
-                                        proposal=deleted_proposal,
-                                        project=project,
-                                        previous_status=proposal_data["status"],
-                                        alert_handler=alert_handler,
-                                        alert_sender=alert_sender,
-                                        snapshot_url=project["metadata"]["snapshot_url"],
-                                        thread_ts=proposal_data.get("thread_ts"),
-                                        tracker=tracker,
-                                        proposal_id=actual_proposal_id,
-                                        alert_type="proposal_deleted"
-                                    )
-                                    
-                                    # Only remove deleted proposal if alert was sent successfully
-                                    if result and result.get("ok"):
-                                        logger.info(f"Successfully sent delete alert for {proposal_id}, removing from state")
-                                        tracker.remove_proposal(actual_proposal_id, project_id=space)
-                                    else:
-                                        logger.warning(f"Failed to send delete alert for {proposal_id}, keeping in state. Result: {result}")
-                                    continue
-                                
-                                # Check if proposal state has changed
-                                if current_proposal["state"] != proposal_data["status"]:
-                                    logger.info(f"State change detected for {proposal_id}: {proposal_data['status']} -> {current_proposal['state']}")
-                                    
-                                    # Process the alert
-                                    result = await process_snapshot_proposal_alert(
-                                        proposal=current_proposal,
-                                        project=project,
-                                        previous_status=proposal_data["status"],
-                                        alert_handler=alert_handler,
-                                        alert_sender=alert_sender,
-                                        snapshot_url=project["metadata"]["snapshot_url"],
-                                        thread_ts=proposal_data.get("thread_ts"),
-                                        tracker=tracker,
-                                        proposal_id=actual_proposal_id,
-                                        alert_type="proposal_ended" if current_proposal["state"] == "closed" else None
-                                    )
-                                    
-                                    # Only update state and remove proposal if alert was sent successfully
-                                    if result and result.get("ok"):
-                                        if current_proposal["state"] == "closed":
-                                            logger.info(f"Successfully sent end alert for {proposal_id}, removing from state")
-                                            tracker.remove_proposal(actual_proposal_id, project_id=space)
-                                        else:
-                                            logger.info(f"Successfully sent state change alert for {proposal_id}, updating state")
-                                            tracker.update_proposal(
-                                                actual_proposal_id,
-                                                current_proposal["state"],
-                                                result["ts"],
-                                                True,
-                                                project_id=space
-                                            )
-                                    else:
-                                        logger.warning(f"Failed to send state change alert for {proposal_id}, keeping current state. Result: {result}")
-                                else:
-                                    logger.debug(f"No state change for proposal {proposal_id} - still {current_proposal['state']}")
-                                
-                            except Exception as e:
-                                logger.error(f"Error processing proposal {proposal_id}: {e}")
-                                continue
-                                
-                    except aiohttp.ClientResponseError as e:
-                        if e.status == 429:
-                            # Handle rate limit with backoff
-                            if await rate_limiter.handle_rate_limit_error():
-                                # Retry the batch
-                                continue
-                            else:
-                                logger.error("Max retries exceeded for rate limit, skipping batch")
-                                break
-                        else:
-                            raise
-                    finally:
-                        # Always release the rate limit token
-                        rate_limiter.release()
-                        
-                except Exception as e:
-                    logger.error(f"Error processing space {space}: {e}")
-                    continue
+        # Space exists, proceed with fetching proposals
+        async with rate_limiter:
+            proposals = await client.get_active_proposals(space)
             
-            # Add a small delay between batches to avoid rate limits
-            if i + BATCH_SIZE < len(spaces):
-                await asyncio.sleep(2)
-                    
+        if proposals is None:  # Error occurred during proposal fetch
+            logger.error(f"Error fetching proposals for {space} ({project_name}), skipping")
+            return
+            
+        # Process proposals
+        for proposal in proposals:
+            await process_snapshot_proposal_alert(
+                proposal=proposal,
+                project=project,
+                previous_status=None,
+                alert_handler=alert_handler,
+                alert_sender=slack_sender,
+                snapshot_url=project["metadata"]["snapshot_url"],
+                thread_ts=None,
+                tracker=proposal_tracker,
+                proposal_id=proposal["id"]
+            )
+            
     except Exception as e:
-        logger.error(f"Error in check_proposals: {e}")
-        raise
+        logger.error(f"Error checking proposals for {space} ({project_name}): {str(e)}")
+        return
 
 async def monitor_snapshot_proposals(
     slack_sender: Optional[SlackAlertSender] = None, 
@@ -525,7 +439,16 @@ async def monitor_snapshot_proposals(
             while True:
                 try:
                     # First check existing proposals for updates/deletions
-                    await check_proposals(client, tracker, space_tracker, alert_handler, slack_sender, None, rate_limiter)
+                    await check_proposals(
+                        client=client,
+                        alert_handler=alert_handler,
+                        space_alert_tracker=space_tracker,
+                        project=snapshot_projects[0],
+                        proposal_tracker=tracker,
+                        rate_limiter=rate_limiter,
+                        slack_sender=slack_sender,
+                        is_test_mode=is_test_mode
+                    )
                     
                     # Then check for new proposals in spaces we haven't alerted about
                     spaces_to_check = []
@@ -556,23 +479,8 @@ async def monitor_snapshot_proposals(
                                         proposals = await client.get_active_proposals(space)
                                         
                                         if proposals is None:
-                                            # Space doesn't exist - send alert and mark as alerted
-                                            logger.warning(f"Space {space} not found for {project['name']}")
-                                            if not space_tracker.has_alerted(space):
-                                                result = await process_snapshot_proposal_alert(
-                                                    proposal={"id": "invalid", "state": "invalid", "title": "Invalid Space", "space": space},
-                                                    project=project,
-                                                    previous_status=None,
-                                                    alert_handler=alert_handler,
-                                                    alert_sender=slack_sender,
-                                                    snapshot_url=project["metadata"]["snapshot_url"],
-                                                    thread_ts=None,
-                                                    tracker=tracker,
-                                                    proposal_id=None,
-                                                    alert_type="space_not_detected"
-                                                )
-                                                if result and result.get("ok"):
-                                                    space_tracker.mark_alerted(space)
+                                            # Error occurred during proposal fetch - skip this space
+                                            logger.error(f"Error fetching proposals for {space} ({project['name']}), skipping")
                                             continue
                                             
                                         logger.info(f"Found {len(proposals)} proposals for {project['name']}")
