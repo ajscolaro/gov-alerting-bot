@@ -35,6 +35,15 @@ class RateLimiter:
         self.last_request_time = datetime.now()
         self.consecutive_failures = 0
     
+    async def __aenter__(self):
+        """Enter the async context manager."""
+        await self.acquire()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit the async context manager."""
+        self.release()
+    
     async def acquire(self):
         """Acquire a rate limit token."""
         now = datetime.now()
