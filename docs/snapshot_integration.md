@@ -56,20 +56,89 @@ The monitor system manages proposal state and alert delivery:
    - Adds to tracking state
 
 2. **Ended Proposals**:
-   - Detected when a proposal's state changes from "active" to "closed"
-   - Sends alert as a thread reply
-   - Removes from tracking state
+   - Detected through active proposal polling
+   - When fetching active proposals for a space, if a tracked proposal is not in the active list:
+     - We fetch its current state directly
+     - If state is "closed", send ended alert and remove from tracking
+     - If proposal not found, check for deletion (see below)
+   - Removes from tracking state immediately after ended alert
+   - No further tracking or alerts for closed proposals
 
 3. **Deleted Proposals**:
-   - Detected when a proposal can't be found
-   - Sends alert as a thread reply
-   - Removes from tracking state
+   - Only tracked for active proposals (closed proposals are removed from tracking)
+   - Two detection mechanisms:
+     1. During active proposal polling:
+        - If a tracked proposal is not in active list and not found when checking state
+        - Sends deletion alert and removes from tracking
+     2. Through periodic existence checks:
+        - Verifies all tracked active proposals still exist
+        - Uses `get_proposals_by_ids` for efficient batch checking
+        - Sends alert as a thread reply if an active proposal is deleted
+        - Removes from tracking state
+   - Handles both cases:
+     - Active proposals that are deleted while being tracked
+     - Active proposals that are already deleted when first checked
 
 4. **Invalid Spaces**:
    - Detected when `check_space_exists` returns `False`
    - Sends a one-time alert with the invalid space ID
    - Marks space as alerted to prevent duplicate alerts
    - Skips future checks for this space until the watchlist is updated
+
+#### Proposal State Management
+The system uses a two-phase approach to track proposal states:
+
+1. **Active Proposal Polling**:
+   - Fetches all active proposals for each space
+   - For each tracked proposal not in active list:
+     - Fetches current state directly
+     - If state is "closed":
+       - Sends ended alert
+       - Removes from tracking
+     - If proposal not found:
+       - Sends deletion alert
+       - Removes from tracking
+   - For new active proposals:
+     - Sends new proposal alert
+     - Adds to tracking
+
+2. **Existence Verification**:
+   - Periodic check of all tracked active proposals
+   - Complements active proposal polling
+   - Catches cases where proposals are deleted between polls
+   - Only checks proposals that are:
+     - Currently tracked
+     - In active state
+   - Does not check closed proposals (removed from tracking)
+
+This dual approach ensures:
+- Reliable detection of ended proposals through state changes
+- Efficient detection of deleted proposals through existence checks
+- No duplicate alerts for the same state change
+- Proper thread context maintenance for all alerts
+- Clean state management (no tracking of closed proposals)
+
+#### Proposal Existence Checking
+The system implements a robust mechanism to detect deleted proposals:
+
+1. **Periodic Checks**:
+   - Before checking for new proposals, all tracked active proposals are verified
+   - Only active proposals are tracked and checked (closed proposals are removed)
+   - Proposals are grouped by space for efficient batch processing
+   - Uses `get_proposals_by_ids` to minimize API calls
+   - Maintains rate limiting and error handling
+
+2. **Deletion Detection**:
+   - If an active proposal is not returned by the API, it is considered deleted
+   - Sends a deletion alert with the original thread context
+   - Removes the proposal from tracking state
+   - Note: Closed proposals are not tracked and therefore not checked for deletion
+
+3. **Error Handling**:
+   - Rate limit errors trigger exponential backoff
+   - Network errors are logged but don't affect other proposals
+   - Failed checks for a space don't prevent checking other spaces
+   - Maintains state consistency even during errors
 
 ### 4. Watchlist Configuration (`data/watchlists/snapshot_watchlist.json`)
 

@@ -399,6 +399,74 @@ async def check_proposals(
         logger.error(f"Error checking proposals for {space} ({project_name}): {str(e)}")
         return
 
+async def check_tracked_proposals(
+    client: SnapshotClient,
+    alert_handler: SnapshotAlertHandler,
+    proposal_tracker: SnapshotProposalTracker,
+    slack_sender: SlackAlertSender,
+    rate_limiter: RateLimiter
+) -> None:
+    """Check all tracked active proposals to verify they still exist."""
+    tracked_proposals = proposal_tracker.get_all_proposals()
+    if not tracked_proposals:
+        return
+
+    # Filter to only active proposals
+    active_proposals = {
+        key: data for key, data in tracked_proposals.items()
+        if data.get("status") == "active"
+    }
+    
+    if not active_proposals:
+        return
+
+    logger.info(f"Checking {len(active_proposals)} tracked active proposals for existence")
+    
+    # Group proposals by space for efficient batch checking
+    proposals_by_space = {}
+    for key, proposal_data in active_proposals.items():
+        space, proposal_id = key.split(":", 1)
+        if space not in proposals_by_space:
+            proposals_by_space[space] = []
+        proposals_by_space[space].append(proposal_id)
+
+    # Check each space's proposals
+    for space, proposal_ids in proposals_by_space.items():
+        try:
+            async with rate_limiter:
+                # Get current state of all proposals for this space
+                proposals = await client.get_proposals_by_ids(proposal_ids)
+                
+                # Check each proposal
+                for proposal_id in proposal_ids:
+                    if proposal_id not in proposals:
+                        # Active proposal no longer exists - it was deleted
+                        logger.info(f"Active proposal {proposal_id} in space {space} no longer exists")
+                        # Get the project info from the watchlist
+                        projects = await load_snapshot_watchlist()
+                        project = next((p for p in projects if p["metadata"]["space"] == space), None)
+                        if project:
+                            await process_snapshot_proposal_alert(
+                                proposal={"id": proposal_id, "state": "deleted", "title": "Proposal Deleted", "space": space},
+                                project=project,
+                                previous_status=active_proposals[f"{space}:{proposal_id}"]["status"],
+                                alert_handler=alert_handler,
+                                alert_sender=slack_sender,
+                                snapshot_url=project["metadata"]["snapshot_url"],
+                                thread_ts=active_proposals[f"{space}:{proposal_id}"].get("thread_ts"),
+                                tracker=proposal_tracker,
+                                proposal_id=proposal_id,
+                                alert_type="proposal_deleted"
+                            )
+                            # Remove from tracking
+                            proposal_tracker.remove_proposal(proposal_id, project_id=space)
+                        else:
+                            logger.error(f"Could not find project info for space {space}")
+                            
+        except Exception as e:
+            logger.error(f"Error checking proposals for space {space}: {e}")
+            continue
+
 async def monitor_snapshot_proposals(
     slack_sender: Optional[SlackAlertSender] = None, 
     continuous: bool = False, 
@@ -452,7 +520,16 @@ async def monitor_snapshot_proposals(
         async with SnapshotClient() as client:
             while True:
                 try:
-                    # First check existing proposals for updates/deletions
+                    # First check if any tracked proposals have been deleted
+                    await check_tracked_proposals(
+                        client=client,
+                        alert_handler=alert_handler,
+                        proposal_tracker=tracker,
+                        slack_sender=slack_sender,
+                        rate_limiter=rate_limiter
+                    )
+
+                    # Then check existing proposals for updates/deletions
                     await check_proposals(
                         client=client,
                         alert_handler=alert_handler,
