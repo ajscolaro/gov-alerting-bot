@@ -22,8 +22,10 @@ class Settings(BaseSettings):
     
     # Slack settings
     SLACK_BOT_TOKEN: str = os.getenv("SLACK_BOT_TOKEN", "")
-    SLACK_CHANNEL: str = os.getenv("SLACK_CHANNEL", "#governance-alerts")
-    TEST_SLACK_CHANNEL: str = os.getenv("TEST_SLACK_CHANNEL", "#governance-alerts-test")
+    SLACK_CHANNEL: str = os.getenv("SLACK_CHANNEL", "#govbot-beta")
+    APP_SLACK_CHANNEL: str = os.getenv("APP_SLACK_CHANNEL", "")  # Channel for app alerts
+    NET_SLACK_CHANNEL: str = os.getenv("NET_SLACK_CHANNEL", "")  # Channel for network alerts
+    TEST_SLACK_CHANNEL: str = os.getenv("TEST_SLACK_CHANNEL", "#govbot-testing")
     
     # Monitoring settings
     POLLING_INTERVAL: int = int(os.getenv("POLLING_INTERVAL", "300"))  # 5 minutes default

@@ -154,10 +154,13 @@ async def process_cosmos_proposal_alert(
                 message["text"] = f"⚠️ Unable to find original message context. {message['text']}"
                 logger.warning(f"No thread context found for proposal {proposal.id}")
         
-        # Send the alert with timeout
+        # Get intel_label from network metadata
+        intel_label = network.get("intel_label")
+        
+        # Send the alert with timeout and intel_label
         try:
             async with asyncio.timeout(30):  # 30 second timeout for Slack API calls
-                result = await slack_sender.send_alert(alert_handler, message)
+                result = await slack_sender.send_alert(alert_handler, message, intel_label=intel_label)
         except asyncio.TimeoutError:
             logger.error(f"Timeout sending alert for {network['name']} proposal {proposal.id}")
             return
@@ -211,7 +214,8 @@ async def monitor_cosmos_proposals(
     # Initialize components
     config = AlertConfig(
         slack_bot_token=settings.SLACK_BOT_TOKEN,
-        slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
+        app_slack_channel=settings.APP_SLACK_CHANNEL,
+        net_slack_channel=settings.NET_SLACK_CHANNEL,
         disable_link_previews=False
     )
     if slack_sender is None:

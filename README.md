@@ -216,8 +216,30 @@ This project supports syncing watchlists from a Google Sheet, allowing you to ma
 
 ## Common Features
 
-### Slack Alert Formatting
+### Alert Routing
+The bot uses the `intel_label` field in watchlist files to determine which Slack channel to send alerts to:
+- `"app"`: Alerts are sent to the application governance channel
+- `"net"`: Alerts are sent to the network governance channel
 
+This routing is consistent across all integrations (Tally, Cosmos, Snapshot, Sky) and applies to:
+- Initial proposal alerts
+- Status update alerts
+- Ended proposal alerts
+- All alerts maintain thread context in their respective channels
+
+Example watchlist entry:
+```json
+{
+  "name": "Example Protocol",
+  "description": "Example Protocol Governance",
+  "intel_label": "app",  // or "net" for network governance
+  "metadata": {
+    // integration-specific metadata
+  }
+}
+```
+
+### Slack Alert Formatting
 All Slack alerts use a modern, consistent format:
 - **Title:** Displayed in a header block (large, prominent)
 - **Description/Body:** Displayed in a context block (smaller, lighter font)

@@ -55,7 +55,26 @@ The Sky integration monitors governance proposals from the Sky Protocol, sending
   - `CHECK_INTERVAL`: Seconds between monitoring checks (default: 60)
 - The `sky_watchlist.json` file must include:
   - Project name
+  - Project description
+  - `intel_label`: Determines which Slack channel receives alerts ("app" for application governance, "net" for network governance)
   - Required metadata fields: `poll_url` and `executive_url`
+
+Example watchlist entry:
+```json
+{
+  "projects": [
+    {
+      "name": "Sky Protocol",
+      "description": "Sky Protocol Governance",
+      "intel_label": "app",  // Determines which Slack channel receives alerts
+      "metadata": {
+        "poll_url": "https://vote.sky.money/polling",
+        "executive_url": "https://vote.sky.money/executive"
+      }
+    }
+  ]
+}
+```
 
 ## Running the Monitor
 

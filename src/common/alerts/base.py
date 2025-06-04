@@ -17,9 +17,36 @@ class AlertType(str, Enum):
 class AlertConfig(BaseModel):
     """Base configuration for alerts."""
     slack_bot_token: str
-    slack_channel: str
+    app_slack_channel: str  # Channel for app alerts
+    net_slack_channel: str  # Channel for network alerts
+    slack_channel: Optional[str] = None  # For backward compatibility
     disable_link_previews: bool = True
     enabled_alert_types: List[str] = []  # Platform-specific alert types
+
+    def get_channel_for_label(self, intel_label: Optional[str]) -> str:
+        """Get the appropriate channel based on intel_label.
+        
+        Args:
+            intel_label: The intel_label from the watchlist item ("app" or "net")
+            
+        Returns:
+            The appropriate channel ID based on intel_label.
+            Raises ValueError if intel_label is invalid or channels are not configured.
+        """
+        if not intel_label:
+            raise ValueError("intel_label is required for channel selection")
+            
+        if intel_label == "app":
+            if not self.app_slack_channel:
+                raise ValueError("app_slack_channel is required for app alerts")
+            return self.app_slack_channel
+            
+        if intel_label == "net":
+            if not self.net_slack_channel:
+                raise ValueError("net_slack_channel is required for net alerts")
+            return self.net_slack_channel
+            
+        raise ValueError(f"Invalid intel_label: {intel_label}. Must be 'app' or 'net'")
 
 
 class BaseAlertHandler(ABC):

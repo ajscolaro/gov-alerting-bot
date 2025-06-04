@@ -154,8 +154,11 @@ async def process_sky_proposal_alert(
                 message["text"] = f"⚠️ Unable to find original message context. {message['text']}"
                 logger.warning(f"No thread context found for {proposal.type} {proposal.id}")
         
-        # Send the alert
-        result = await slack_sender.send_alert(alert_handler, message)
+        # Get intel_label from project metadata
+        intel_label = project.get("intel_label")
+        
+        # Send the alert with intel_label
+        result = await slack_sender.send_alert(alert_handler, message, intel_label=intel_label)
         
         if result["ok"]:
             if alert_type == "proposal_active":
@@ -240,7 +243,8 @@ async def monitor_sky_proposals(
     # Initialize components
     config = AlertConfig(
         slack_bot_token=settings.SLACK_BOT_TOKEN,
-        slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
+        app_slack_channel=settings.APP_SLACK_CHANNEL,
+        net_slack_channel=settings.NET_SLACK_CHANNEL,
         disable_link_previews=False
     )
     if slack_sender is None:

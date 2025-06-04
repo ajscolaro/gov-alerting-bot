@@ -150,7 +150,7 @@ The watchlist defines which spaces to monitor:
     {
       "name": "Project Name",
       "description": "Project Description",
-      "intel_label": "app|net",
+      "intel_label": "app",
       "metadata": {
         "space": "space.eth",
         "snapshot_url": "https://snapshot.box/#/s:space.eth"
@@ -159,6 +159,13 @@ The watchlist defines which spaces to monitor:
   ]
 }
 ```
+
+Required fields:
+- `name`: Display name for the project
+- `description`: Brief description of the project
+- `intel_label`: Determines which Slack channel receives alerts ("app" for application governance, "net" for network governance)
+- `metadata.space`: Snapshot space ID
+- `metadata.snapshot_url`: Snapshot governance page URL
 
 ## Error Handling
 

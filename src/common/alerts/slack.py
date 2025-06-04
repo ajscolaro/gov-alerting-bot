@@ -14,12 +14,12 @@ class SlackAlertSender:
     def __init__(self, config: AlertConfig):
         self.config = config
         self.api_base_url = "https://slack.com/api"
-        self._channel_id: Optional[str] = None
+        self._channel_ids: Dict[str, str] = {}  # Cache channel IDs by channel name
     
-    async def _get_channel_id(self) -> Optional[str]:
+    async def _get_channel_id(self, channel_name: str) -> Optional[str]:
         """Get the channel ID from the channel name."""
-        if self._channel_id:
-            return self._channel_id
+        if channel_name in self._channel_ids:
+            return self._channel_ids[channel_name]
             
         headers = {
             "Authorization": f"Bearer {self.config.slack_bot_token}",
@@ -30,13 +30,13 @@ class SlackAlertSender:
             # First try to get the channel directly
             async with session.get(
                 f"{self.api_base_url}/conversations.info",
-                params={"channel": self.config.slack_channel}
+                params={"channel": channel_name}
             ) as response:
                 if response.status == 200:
                     result = await response.json()
                     if result.get("ok"):
-                        self._channel_id = result["channel"]["id"]
-                        return self._channel_id
+                        self._channel_ids[channel_name] = result["channel"]["id"]
+                        return self._channel_ids[channel_name]
             
             # If that fails, try to list all channels and find the matching one
             async with session.get(
@@ -46,17 +46,22 @@ class SlackAlertSender:
                 if response.status == 200:
                     result = await response.json()
                     if result.get("ok"):
-                        channel_name = self.config.slack_channel.lstrip("#")
+                        channel_name_clean = channel_name.lstrip("#")
                         for channel in result["channels"]:
-                            if channel["name"] == channel_name:
-                                self._channel_id = channel["id"]
-                                return self._channel_id
+                            if channel["name"] == channel_name_clean:
+                                self._channel_ids[channel_name] = channel["id"]
+                                return self._channel_ids[channel_name]
         
         return None
     
-    async def send_alert(self, alert_handler: BaseAlertHandler, message: Dict) -> Dict:
+    async def send_alert(self, alert_handler: BaseAlertHandler, message: Dict, intel_label: Optional[str] = None) -> Dict:
         """Send an alert to Slack using the bot token.
         
+        Args:
+            alert_handler: The alert handler instance
+            message: The message to send
+            intel_label: Optional intel_label to determine which channel to use
+            
         Returns:
             Dict containing success status and message timestamp if successful:
             {
@@ -64,9 +69,13 @@ class SlackAlertSender:
                 "ts": str or None
             }
         """
+        # Get appropriate channel based on intel_label
+        channel_name = self.config.get_channel_for_label(intel_label)
+        
         # Get channel ID
-        channel_id = await self._get_channel_id()
+        channel_id = await self._get_channel_id(channel_name)
         if not channel_id:
+            logger.error(f"Failed to get channel ID for {channel_name}")
             return {"ok": False, "ts": None}
         
         # Merge common formatting with platform-specific message

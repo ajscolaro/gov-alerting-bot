@@ -62,8 +62,8 @@ The watchlist defines which chains to monitor:
     {
       "name": "Example Network",
       "description": "Example Network Governance",
+      "intel_label": "net",
       "metadata": {
-        "type": "network",
         "chain_id": "example-1",
         "rpc_url": "https://rest.cosmos.directory/example",
         "explorer_url": "https://www.mintscan.io/example",
@@ -77,6 +77,8 @@ The watchlist defines which chains to monitor:
 
 Required fields:
 - `name`: Display name for the network
+- `description`: Brief description of the network
+- `intel_label`: Determines which Slack channel receives alerts ("app" for application governance, "net" for network governance)
 - `metadata.chain_id`: Chain ID (e.g., "cosmoshub-4")
 - `metadata.rpc_url`: REST API URL
 - `metadata.explorer_url`: Block explorer URL
