@@ -409,7 +409,7 @@ async def check_tracked_proposals(
     slack_sender: SlackAlertSender,
     rate_limiter: RateLimiter
 ) -> None:
-    """Check all tracked active proposals to verify they still exist."""
+    """Check all tracked active proposals to verify their current state."""
     tracked_proposals = proposal_tracker.get_all_proposals()
     if not tracked_proposals:
         return
@@ -423,7 +423,7 @@ async def check_tracked_proposals(
     if not active_proposals:
         return
 
-    logger.info(f"Checking {len(active_proposals)} tracked active proposals for existence")
+    logger.info(f"Checking {len(active_proposals)} tracked active proposals for state changes")
     
     # Group proposals by space for efficient batch checking
     proposals_by_space = {}
@@ -465,6 +465,31 @@ async def check_tracked_proposals(
                             proposal_tracker.remove_proposal(proposal_id, project_id=space)
                         else:
                             logger.error(f"Could not find project info for space {space}")
+                    else:
+                        # Proposal exists, check if state changed
+                        current_proposal = proposals[proposal_id]
+                        if current_proposal.get("state") == "closed":
+                            # Proposal has ended
+                            logger.info(f"Active proposal {proposal_id} in space {space} has ended")
+                            projects = await load_snapshot_watchlist()
+                            project = next((p for p in projects if p["metadata"]["space"] == space), None)
+                            if project:
+                                await process_snapshot_proposal_alert(
+                                    proposal=current_proposal,
+                                    project=project,
+                                    previous_status=active_proposals[f"{space}:{proposal_id}"]["status"],
+                                    alert_handler=alert_handler,
+                                    alert_sender=slack_sender,
+                                    snapshot_url=project["metadata"]["snapshot_url"],
+                                    thread_ts=active_proposals[f"{space}:{proposal_id}"].get("thread_ts"),
+                                    tracker=proposal_tracker,
+                                    proposal_id=proposal_id,
+                                    alert_type="proposal_ended"
+                                )
+                                # Remove from tracking since it's ended
+                                proposal_tracker.remove_proposal(proposal_id, project_id=space)
+                            else:
+                                logger.error(f"Could not find project info for space {space}")
                             
         except Exception as e:
             logger.error(f"Error checking proposals for space {space}: {e}")
