@@ -8,6 +8,7 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
   - Tally (Ethereum/EVM governance)
   - Cosmos SDK (Cosmos Hub, Osmosis, Celestia, and other Cosmos chains)
   - Snapshot (Off-chain governance platforms)
+  - Sky Protocol (Polls and Executive votes)
 - Sends alerts to Slack for:
   - New active proposals 
   - Proposal status updates
@@ -25,6 +26,7 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 - [Snapshot Integration](docs/snapshot_integration.md) - Details about Snapshot integration, alert types, and monitoring
 - [Cosmos Integration](docs/cosmos_integration.md) - Information about Cosmos SDK chain monitoring and API handling
 - [Tally Integration](docs/tally_integration.md) - Details about Tally governance monitoring and alerts
+- [Sky Integration](docs/sky_integration.md) - Information about Sky Protocol monitoring and alert handling
 
 ## Project Structure
 
@@ -34,16 +36,19 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 │   ├── watchlists/              # Configuration for projects to monitor
 │   │   ├── tally_watchlist.json    # Tally projects configuration
 │   │   ├── cosmos_watchlist.json   # Cosmos networks configuration
-│   │   └── snapshot_watchlist.json # Snapshot spaces configuration
+│   │   ├── snapshot_watchlist.json # Snapshot spaces configuration
+│   │   └── sky_watchlist.json      # Sky Protocol configuration
 │   ├── proposal_tracking/       # State tracking for proposals
 │   │   ├── tally_proposal_state.json    # Tally proposals state
 │   │   ├── cosmos_proposal_state.json   # Cosmos proposals state
 │   │   ├── snapshot_proposal_state.json # Snapshot proposals state
+│   │   ├── sky_proposal_state.json      # Sky proposals state
 │   │   └── admin_alerts.json           # Tracks alerts that require admin action, like invalid space ids
 │   └── test_proposal_tracking/  # Test state tracking
 │       ├── tally_proposal_state.json    # Test state for Tally
 │       ├── cosmos_proposal_state.json   # Test state for Cosmos
-│       └── snapshot_proposal_state.json # Test state for Snapshot
+│       ├── snapshot_proposal_state.json # Test state for Snapshot
+│       └── sky_proposal_state.json      # Test state for Sky
 ├── src/
 │   ├── common/
 │   │   ├── alerts/            # Common alert handling code
@@ -65,21 +70,27 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 │   │   │   ├── client.py     # API client for Tally
 │   │   │   ├── alerts.py     # Alert formatting for Tally
 │   │   │   └── __init__.py
-│   │   └── snapshot/         # Snapshot integration
-│   │       ├── client.py     # API client for Snapshot
-│   │       ├── alerts.py     # Alert formatting for Snapshot
+│   │   ├── snapshot/         # Snapshot integration
+│   │   │   ├── client.py     # API client for Snapshot
+│   │   │   ├── alerts.py     # Alert formatting for Snapshot
+│   │   │   └── __init__.py
+│   │   └── sky/              # Sky Protocol integration
+│   │       ├── client.py     # API client for Sky
+│   │       ├── alerts.py     # Alert formatting for Sky
 │   │       └── __init__.py
 │   ├── monitor/              # Monitoring scripts
 │   │   ├── monitor_tally.py  # Tally monitoring script
 │   │   ├── monitor_cosmos.py # Cosmos monitoring script
 │   │   ├── monitor_snapshot.py # Snapshot monitoring script
+│   │   ├── monitor_sky.py    # Sky monitoring script
 │   │   └── __init__.py
 │   ├── monitor.py            # Main monitoring script (runs all monitors)
 │   └── __init__.py
 ├── docs/                     # Documentation
 │   ├── snapshot_integration.md
 │   ├── cosmos_integration.md
-│   └── tally_integration.md
+│   ├── tally_integration.md
+│   └── sky_integration.md
 ├── .env                    # Environment configuration
 ├── requirements.txt        # Production dependencies
 └── requirements-dev.txt    # Development dependencies
@@ -125,6 +136,10 @@ TEST_CHECK_INTERVAL=60  # Optional: Polling interval for test mode
      ```
      ```json
      # data/proposal_tracking/snapshot_proposal_state.json
+     {}
+     ```
+     ```json
+     # data/proposal_tracking/sky_proposal_state.json
      {}
      ```
      ```json
