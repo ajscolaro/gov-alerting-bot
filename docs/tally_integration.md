@@ -83,7 +83,7 @@ The watchlist defines which governors to monitor:
 Required fields:
 - `name`: Display name for the project
 - `description`: Brief description of the project
-- `intel_label`: Category label (e.g., "app" for applications, "net" for networks)
+- `intel_label`: Determines which Slack channel receives alerts ("app" for application governance, "net" for network governance)
 - `metadata.chain`: Chain name (e.g., "ethereum", "arbitrum", "base")
 - `metadata.governor_address`: Tally governor contract address
 - `metadata.chain_id`: Chain ID in eip155 format

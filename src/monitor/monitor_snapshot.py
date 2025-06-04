@@ -280,9 +280,12 @@ async def process_snapshot_proposal_alert(
                     message["text"] = f"⚠️ Unable to find original message context. {message['text']}"
                     logger.warning(f"No thread context found for proposal {proposal_id}")
             
-            # Send the alert using the slack sender
+            # Get intel_label from project metadata
+            intel_label = project.get("intel_label")
+            
+            # Send the alert using the slack sender with intel_label
             try:
-                result = await alert_sender.send_alert(alert_handler, message)
+                result = await alert_sender.send_alert(alert_handler, message, intel_label=intel_label)
                 
                 if result and result.get("ok"):
                     logger.info(f"Successfully sent {alert_type} alert for proposal {proposal_id}")
@@ -497,7 +500,8 @@ async def monitor_snapshot_proposals(
         # Create alert config
         config = AlertConfig(
             slack_bot_token=settings.SLACK_BOT_TOKEN,
-            slack_channel=settings.TEST_SLACK_CHANNEL if is_test_mode else settings.SLACK_CHANNEL,
+            app_slack_channel=settings.APP_SLACK_CHANNEL,
+            net_slack_channel=settings.NET_SLACK_CHANNEL,
             disable_link_previews=False
         )
         
