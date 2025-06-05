@@ -34,6 +34,22 @@ class SkyClient:
         if self.session:
             await self.session.close()
     
+    async def get_poll(self, poll_id: str) -> Optional[Dict]:
+        """Get a specific poll by ID."""
+        if not self.session:
+            raise RuntimeError("Client must be used as an async context manager")
+            
+        try:
+            async with self.session.get(f"{self.base_url}/api/polling/{poll_id}") as response:
+                if response.status == 404:
+                    logger.info(f"Poll {poll_id} not found")
+                    return None
+                response.raise_for_status()
+                return await response.json()
+        except Exception as e:
+            logger.error(f"Error fetching poll {poll_id}: {e}")
+            return None
+    
     async def get_polls(self) -> List[Dict]:
         """Get all active polls."""
         if not self.session:

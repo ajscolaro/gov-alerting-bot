@@ -124,15 +124,20 @@ async def process_sky_proposal_alert(
     previous_status = current["status"] if current else None
     
     if alert_handler.should_alert(proposal, previous_status):
-        # Determine alert type
+        # Determine alert type based on proposal type and status
         if not previous_status:
             alert_type = "proposal_active"
-        elif previous_status == "active" and proposal.status == "passed":
-            alert_type = "proposal_update"
-        elif previous_status == "passed" and proposal.status == "executed":
-            alert_type = "proposal_ended"
-        else:
-            alert_type = "proposal_update"
+        elif proposal.type == "poll":
+            # For polls, only active and ended states
+            alert_type = "proposal_ended" if proposal.status == "ended" else "proposal_active"
+        else:  # executive vote
+            # For executive votes, handle passed and executed states
+            if previous_status == "active" and proposal.status == "passed":
+                alert_type = "proposal_update"
+            elif previous_status == "passed" and proposal.status == "executed":
+                alert_type = "proposal_ended"
+            else:
+                alert_type = "proposal_update"
         
         logger.info(f"Sending {alert_type} alert for {project['name']} {proposal.type} {proposal.id}")
         
@@ -172,24 +177,10 @@ async def process_sky_proposal_alert(
                 )
                 logger.info(f"Stored thread timestamp for new proposal: {result['ts']}")
             elif alert_type == "proposal_ended":
-                final_statuses = {
-                    "ended", "passed", "executed"
-                }
-                
-                if proposal.status in final_statuses:
-                    tracker.remove_proposal(proposal.id, proposal_type=proposal.type)
-                    logger.info(f"Removed ended proposal from tracking: {proposal.id}")
-                else:
-                    tracker.update_proposal(
-                        proposal.id, 
-                        proposal.status, 
-                        current.get("thread_ts"), 
-                        True,
-                        proposal_type=proposal.type,
-                        support=proposal.support
-                    )
-                    logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
-            else:  # proposal_update
+                # Remove ended proposals from tracking
+                tracker.remove_proposal(proposal.id, proposal_type=proposal.type)
+                logger.info(f"Removed ended proposal from tracking: {proposal.id}")
+            else:  # proposal_update (only for executive votes)
                 tracker.update_proposal(
                     proposal.id, 
                     proposal.status, 
@@ -198,7 +189,7 @@ async def process_sky_proposal_alert(
                     proposal_type=proposal.type,
                     support=proposal.support
                 )
-                logger.info(f"Updated proposal status while maintaining thread context: {proposal.status}")
+                logger.info(f"Updated executive vote status while maintaining thread context: {proposal.status}")
         else:
             tracker.update_proposal(
                 proposal.id, 
@@ -224,16 +215,7 @@ async def monitor_sky_proposals(
     check_interval: Optional[int] = None,
     is_test_mode: Optional[bool] = None
 ):
-    """Monitor Sky proposals and send alerts.
-    
-    Args:
-        slack_sender: Optional SlackAlertSender instance
-        continuous: If True, runs in a continuous loop. If False, runs once and exits.
-        check_interval: Number of seconds to wait between checks when running continuously.
-                      Required if continuous is True, ignored otherwise.
-        is_test_mode: If True, uses test files and test channel. If None, derived from continuous
-                     for backward compatibility.
-    """
+    """Monitor Sky proposals and send alerts."""
     if continuous and check_interval is None:
         raise ValueError("check_interval is required when continuous is True")
         
@@ -270,16 +252,48 @@ async def monitor_sky_proposals(
                     logger.info(f"Checking proposals for {project['name']}")
                     
                     try:
-                        # Check polls
+                        # First check active polls
                         polls = await client.get_polls()
-                        logger.info(f"Found {len(polls)} polls for {project['name']}")
+                        logger.info(f"Found {len(polls)} active polls for {project['name']}")
                         
+                        # Process active polls
                         for poll_data in polls:
                             proposal = client.parse_proposal(poll_data, "poll")
                             current = tracker.get_proposal(proposal.id, "poll")
                             await process_sky_proposal_alert(
                                 proposal, project, current, alert_handler, slack_sender, tracker
                             )
+                        
+                        # Check status of tracked polls that are no longer active
+                        # Create a copy of the keys to avoid modification during iteration
+                        tracked_poll_keys = [key for key in tracker.proposals.keys() if key.startswith("poll:")]
+                        for key in tracked_poll_keys:
+                            data = tracker.proposals[key]
+                            if data["status"] == "active":
+                                poll_id = key.split(":")[1]
+                                # Fetch the poll to check its current status
+                                poll_data = await client.get_poll(poll_id)
+                                if poll_data:
+                                    proposal = client.parse_proposal(poll_data, "poll")
+                                    await process_sky_proposal_alert(
+                                        proposal, project, data, alert_handler, slack_sender, tracker
+                                    )
+                                else:
+                                    # If poll not found, it's likely ended
+                                    proposal = SkyProposal(
+                                        id=poll_id,
+                                        title="Unknown",  # We don't have the title anymore
+                                        description="Unknown",
+                                        status="ended",
+                                        start_time=datetime.now(),
+                                        end_time=datetime.now(),
+                                        proposal_url=None,
+                                        type="poll",
+                                        support=None
+                                    )
+                                    await process_sky_proposal_alert(
+                                        proposal, project, data, alert_handler, slack_sender, tracker
+                                    )
                         
                         # Check executive votes
                         executive_votes = await client.get_executive_votes()
