@@ -27,16 +27,19 @@ async def run_monitors(monitors: List[str]):
     # Load configuration from environment variables
     app_channel = os.getenv("APP_SLACK_CHANNEL")
     net_channel = os.getenv("NET_SLACK_CHANNEL")
+    test_channel = os.getenv("TEST_SLACK_CHANNEL")
     
-    if not app_channel or not net_channel:
-        logger.error("Missing required environment variables: APP_SLACK_CHANNEL and NET_SLACK_CHANNEL must both be set")
+    if not app_channel or not net_channel or not test_channel:
+        logger.error("Missing required environment variables: APP_SLACK_CHANNEL, NET_SLACK_CHANNEL, and TEST_SLACK_CHANNEL must all be set")
         return
     
     config = AlertConfig(
         slack_bot_token=os.getenv("SLACK_BOT_TOKEN"),
         app_slack_channel=app_channel,
         net_slack_channel=net_channel,
+        test_slack_channel=test_channel,
         disable_link_previews=True,
+        is_test_mode=False,  # Always False when running through monitor.py
         enabled_alert_types=["proposal_active", "proposal_update", "proposal_ended",
                            "proposal_voting", "proposal_ended", "proposal_deleted",
                            "space_not_detected"]
@@ -46,7 +49,7 @@ async def run_monitors(monitors: List[str]):
         logger.error("Missing required environment variable: SLACK_BOT_TOKEN")
         return
     
-    logger.info(f"Using channels - App: {app_channel}, Net: {net_channel}")
+    logger.info(f"Using channels - App: {app_channel}, Net: {net_channel}, Test: {test_channel}")
     
     # Get check interval from environment
     check_interval = int(os.getenv("CHECK_INTERVAL", "60"))  # Default to 60 seconds if not set

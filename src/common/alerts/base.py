@@ -19,20 +19,28 @@ class AlertConfig(BaseModel):
     slack_bot_token: str
     app_slack_channel: str  # Channel for app alerts
     net_slack_channel: str  # Channel for network alerts
+    test_slack_channel: str  # Channel for test alerts
     slack_channel: Optional[str] = None  # For backward compatibility
     disable_link_previews: bool = True
     enabled_alert_types: List[str] = []  # Platform-specific alert types
+    is_test_mode: bool = False  # Whether to use test channel
 
     def get_channel_for_label(self, intel_label: Optional[str]) -> str:
-        """Get the appropriate channel based on intel_label.
+        """Get the appropriate channel based on intel_label and test mode.
         
         Args:
             intel_label: The intel_label from the watchlist item ("app" or "net")
             
         Returns:
-            The appropriate channel ID based on intel_label.
+            The appropriate channel ID based on intel_label and test mode.
             Raises ValueError if intel_label is invalid or channels are not configured.
         """
+        # In test mode, always use the test channel
+        if self.is_test_mode:
+            if not self.test_slack_channel:
+                raise ValueError("test_slack_channel is required for test mode")
+            return self.test_slack_channel
+            
         if not intel_label:
             raise ValueError("intel_label is required for channel selection")
             

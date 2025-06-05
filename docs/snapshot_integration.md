@@ -45,6 +45,11 @@ The monitor system manages proposal state and alert delivery:
 #### State Management
 - **Proposal State**: Tracks proposal status, thread timestamps, and alert history
 - **Space Alerts**: Maintains a record of spaces that have triggered invalid space alerts
+- **Deletion Detection**: Implements a robust deletion detection system with:
+  - In-memory tracking of deletion attempts
+  - Requires 3 failed attempts over 45 minutes (3 monitor cycles) to confirm deletion
+  - Attempt tracking resets on bot restart for safety
+  - Detailed logging of deletion detection process
 - **Persistence**: State is saved to JSON files:
   - `data/proposal_tracking/snapshot_proposal_state.json` (production)
   - `data/test_proposal_tracking/snapshot_proposal_state.json` (testing)
@@ -66,15 +71,28 @@ The monitor system manages proposal state and alert delivery:
 
 3. **Deleted Proposals**:
    - Only tracked for active proposals (closed proposals are removed from tracking)
-   - Two detection mechanisms:
+   - Two-phase deletion detection:
      1. During active proposal polling:
-        - If a tracked proposal is not in active list and not found when checking state
-        - Sends deletion alert and removes from tracking
+        - If a tracked proposal is not in active list, record a deletion attempt
+        - Only mark as deleted after 3 failed attempts over 45 minutes
+        - Sends deletion alert and removes from tracking when confirmed
      2. Through periodic existence checks:
         - Verifies all tracked active proposals still exist
         - Uses `get_proposals_by_ids` for efficient batch checking
-        - Sends alert as a thread reply if an active proposal is deleted
+        - Records deletion attempts for missing proposals
+        - Sends alert as a thread reply if deletion is confirmed
         - Removes from tracking state
+   - Deletion attempt tracking:
+     - Maintains count of failed attempts to find each proposal
+     - Tracks time since first attempt
+     - Requires 3 failed attempts over 45 minutes to confirm deletion
+     - Tracking is in-memory only and resets on bot restart
+     - Cleared immediately if proposal is found again
+   - Logging:
+     - First attempt: "First deletion attempt for proposal {id} in space {space}"
+     - Subsequent attempts: "Deletion attempt {count} for proposal {id} in space {space}. Time since first attempt: {minutes} minutes"
+     - Confirmation: "Proposal {id} in space {space} confirmed as deleted after {count} attempts over {minutes} minutes"
+     - Clearing attempts: "Clearing deletion attempts for proposal {id} in space {space} after {count} attempts"
    - Handles both cases:
      - Active proposals that are deleted while being tracked
      - Active proposals that are already deleted when first checked
@@ -196,6 +214,33 @@ Required fields:
 - Batch processing of spaces to minimize API calls
 - Delays between batches to avoid rate limits
 
+### Deletion Detection
+The system implements a robust deletion detection mechanism to prevent false alerts:
+
+1. **Attempt Tracking**:
+   - Each failed attempt to find a proposal is recorded
+   - Tracking is maintained in memory only (not persisted)
+   - Resets on bot restart for safety
+   - Cleared immediately if proposal is found again
+
+2. **Deletion Confirmation Requirements**:
+   - Minimum 3 failed attempts to find the proposal
+   - At least 45 minutes (3 monitor cycles) must pass since first attempt
+   - Both conditions must be met to confirm deletion
+   - Prevents false alerts from temporary API issues
+
+3. **Error Handling**:
+   - Network errors during proposal checks are logged but don't count as deletion attempts
+   - Rate limit errors trigger exponential backoff
+   - Failed checks for a space don't prevent checking other spaces
+   - Maintains state consistency even during errors
+
+4. **Logging and Monitoring**:
+   - Detailed logging of deletion attempt process
+   - Tracks attempt count and time elapsed
+   - Logs when attempts are cleared
+   - Helps identify patterns in deletion detection
+
 ## Performance Optimizations
 
 ### Batch Processing
@@ -222,6 +267,17 @@ Required fields:
 - Uses separate state files in `data/test_proposal_tracking/`
 - Allows testing without affecting production state
 - Run with: `PYTHONPATH=. LOG_LEVEL=DEBUG python3 -m src.monitor.monitor_snapshot`
+- When running in test mode:
+  - All alerts are sent to `TEST_SLACK_CHANNEL`, regardless of `intel_label`
+  - Uses test state file (`data/test_proposal_tracking/snapshot_proposal_state.json`)
+  - Uses test admin alerts file (`data/test_proposal_tracking/admin_alerts.json`)
+  - Runs once and exits
+  - Ideal for testing new spaces, alert formatting, and deletion detection
+- When running through `monitor.py` (production mode):
+  - Alerts are sent to `APP_SLACK_CHANNEL` or `NET_SLACK_CHANNEL` based on `intel_label`
+  - Uses production state file (`data/proposal_tracking/snapshot_proposal_state.json`)
+  - Uses production admin alerts file (`data/proposal_tracking/admin_alerts.json`)
+  - Runs continuously with configurable check interval
 
 ### Common Test Scenarios
 1. **Invalid Space**:
@@ -236,6 +292,14 @@ Required fields:
    - Verify no admin alert is sent
    - Verify error is logged appropriately
    - Verify monitoring continues for other spaces
+
+3. **Deletion Detection**:
+   - Set up a test proposal and simulate API unavailability
+   - Verify no deletion alert is sent on first attempt
+   - Verify alert is only sent after 3 failed attempts over 45 minutes
+   - Verify attempt tracking is cleared if proposal is found again
+   - Verify attempt tracking resets on bot restart
+   - Monitor logs for deletion attempt tracking messages
 
 ## Best Practices
 
