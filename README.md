@@ -112,8 +112,9 @@ pip install -r requirements.txt
 3. Create a `.env` file with your configuration:
 ```env
 SLACK_BOT_TOKEN=xoxb-your-token
-SLACK_CHANNEL=your-channel-id
-TEST_SLACK_CHANNEL=your-test-channel-id  # Optional: Channel for testing individual monitors
+APP_SLACK_CHANNEL=your-app-channel-id
+NET_SLACK_CHANNEL=your-net-channel-id
+TEST_SLACK_CHANNEL=your-test-channel-id  # Required for test mode
 TALLY_API_KEY=your-tally-api-key
 TEST_TALLY_API_KEY=your-test-tally-api-key  # Optional: API key for testing
 CHECK_INTERVAL=60  # Polling interval in seconds
@@ -163,7 +164,16 @@ python src/monitor/monitor_snapshot.py
 python src/monitor/monitor_sky.py
 ```
 
-Note: When running through `monitor.py`, all monitors run continuously in production mode. When running individual monitor scripts directly, they run in test mode (once and exit).
+Note: 
+- When running through `monitor.py`, all monitors run continuously in production mode:
+  - Uses state files in `data/proposal_tracking/`
+  - Sends alerts to `APP_SLACK_CHANNEL` or `NET_SLACK_CHANNEL` based on `intel_label`
+  - Runs continuously with the configured `CHECK_INTERVAL`
+- When running individual monitor scripts directly, they run in test mode:
+  - Uses state files in `data/test_proposal_tracking/`
+  - Sends all alerts to `TEST_SLACK_CHANNEL`
+  - Runs once and exits
+  - Good for testing and debugging without affecting production state
 
 ## Google Sheets Watchlist Sync
 
@@ -233,8 +243,11 @@ This project supports syncing watchlists from a Google Sheet, allowing you to ma
 
 ### Alert Routing
 The bot uses the `intel_label` field in watchlist files to determine which Slack channel to send alerts to:
-- `"app"`: Alerts are sent to the application governance channel
-- `"net"`: Alerts are sent to the network governance channel
+- When running through `monitor.py` (production mode):
+  - `"app"`: Alerts are sent to the application governance channel (`APP_SLACK_CHANNEL`)
+  - `"net"`: Alerts are sent to the network governance channel (`NET_SLACK_CHANNEL`)
+- When running individual monitor scripts (test mode):
+  - All alerts are sent to the test channel (`TEST_SLACK_CHANNEL`), regardless of `intel_label`
 
 This routing is consistent across all integrations (Tally, Cosmos, Snapshot, Sky) and applies to:
 - Initial proposal alerts
@@ -272,14 +285,25 @@ Example Slack Block structure:
 ```
 
 ### State Management
-- Each platform maintains its own state file in `data/proposal_tracking/` for production
-- Test state files are in `data/test_proposal_tracking/` for testing
+- Each platform maintains its own state file:
+  - Production state files in `data/proposal_tracking/`:
+    - Used when running through `monitor.py`
+    - Stores proposal tracking data for production monitoring
+    - Alerts are sent to `APP_SLACK_CHANNEL` or `NET_SLACK_CHANNEL`
+  - Test state files in `data/test_proposal_tracking/`:
+    - Used when running individual monitor scripts directly
+    - Stores test proposal tracking data
+    - All alerts are sent to `TEST_SLACK_CHANNEL`
 - State files are automatically created if they don't exist
-- Production mode is used when running through `monitor.py`
-- Test mode is used when running individual monitor scripts directly
 - Proposals are tracked with unique identifiers
 - Thread context is preserved for all status updates
 - Proposals are automatically removed after reaching final states
+- Test state files are completely separate from production state files
+- Test mode is ideal for:
+  - Testing new watchlist entries
+  - Debugging alert formatting
+  - Verifying alert routing
+  - Testing without affecting production monitoring
 
 ### Error Handling and Logging
 - Comprehensive error handling at multiple levels

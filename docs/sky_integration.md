@@ -89,14 +89,18 @@ python src/monitor.py --monitors sky
 - Can be run alongside other monitors (Tally, Cosmos, Snapshot)
 
 ### Test Mode
-```bash
-# Run directly (test mode, runs once and exits)
-python src/monitor/monitor_sky.py
-```
-- Uses test state file (`data/test_proposal_tracking/sky_proposal_state.json`)
-- Sends alerts to test channel
-- Runs once and exits
-- Good for testing and debugging
+- Uses separate state files in `data/test_proposal_tracking/`
+- Allows testing without affecting production state
+- Run with: `PYTHONPATH=. LOG_LEVEL=DEBUG python3 -m src.monitor.monitor_sky`
+- When running in test mode:
+  - All alerts are sent to `TEST_SLACK_CHANNEL`, regardless of `intel_label`
+  - Uses test state file (`data/test_proposal_tracking/sky_proposal_state.json`)
+  - Runs once and exits
+  - Ideal for testing new projects, alert formatting, and proposal transitions
+- When running through `monitor.py` (production mode):
+  - Alerts are sent to `APP_SLACK_CHANNEL` or `NET_SLACK_CHANNEL` based on `intel_label`
+  - Uses production state file (`data/proposal_tracking/sky_proposal_state.json`)
+  - Runs continuously with configurable check interval
 
 ## State Management
 - **Production Environment:**
@@ -149,4 +153,9 @@ python src/monitor/monitor_sky.py
    - Track API response times
    - Monitor status transition accuracy
    - Watch for patterns in proposal updates
-   - Verify timezone handling is working correctly 
+   - Verify timezone handling is working correctly
+
+## Testing
+
+### Common Test Scenarios
+// ... existing code ... 

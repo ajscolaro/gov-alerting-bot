@@ -245,7 +245,9 @@ async def monitor_sky_proposals(
         slack_bot_token=settings.SLACK_BOT_TOKEN,
         app_slack_channel=settings.APP_SLACK_CHANNEL,
         net_slack_channel=settings.NET_SLACK_CHANNEL,
-        disable_link_previews=False
+        test_slack_channel=settings.TEST_SLACK_CHANNEL,
+        disable_link_previews=False,
+        is_test_mode=is_test_mode
     )
     if slack_sender is None:
         slack_sender = SlackAlertSender(config)

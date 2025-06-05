@@ -6,6 +6,7 @@ import logging
 from typing import Dict, Set, Optional
 from datetime import datetime
 import aiohttp
+import time
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -83,6 +84,9 @@ class SnapshotProposalTracker:
         self.is_test_mode = not continuous if is_test_mode is None else is_test_mode
         self.state_file = "data/test_proposal_tracking/snapshot_proposal_state.json" if self.is_test_mode else "data/proposal_tracking/snapshot_proposal_state.json"
         self.proposals: Dict[str, Dict] = self._load_state()
+        # Add tracking for deletion attempts
+        self.deletion_attempts: Dict[str, Dict[str, int]] = {}  # space:proposal_id -> attempt_count
+        self.last_check_time: Dict[str, Dict[str, float]] = {}  # space:proposal_id -> timestamp
         logger.info(f"Loaded state from {self.state_file}: {len(self.proposals)} proposals")
     
     def _load_state(self) -> Dict[str, Dict]:
@@ -143,6 +147,62 @@ class SnapshotProposalTracker:
     def get_tracked_proposals_count(self) -> int:
         """Get the number of currently tracked proposals."""
         return len(self.proposals)
+
+    def record_deletion_attempt(self, space: str, proposal_id: str) -> bool:
+        """Record a deletion attempt and return whether to mark as deleted.
+        
+        A proposal is only marked as deleted after:
+        1. At least 3 failed attempts to find it
+        2. At least 45 minutes have passed since the first attempt (3 monitor cycles)
+        """
+        key = f"{space}:{proposal_id}"
+        current_time = time.time()
+        
+        # Initialize tracking if first attempt
+        if key not in self.deletion_attempts:
+            self.deletion_attempts[key] = {"count": 1, "first_attempt": current_time}
+            self.last_check_time[key] = current_time
+            logger.info(f"First deletion attempt for proposal {proposal_id} in space {space}")
+            return False
+            
+        # Update attempt count and last check time
+        self.deletion_attempts[key]["count"] += 1
+        self.last_check_time[key] = current_time
+        
+        # Check if we should mark as deleted
+        attempts = self.deletion_attempts[key]
+        time_since_first = current_time - attempts["first_attempt"]
+        minutes_since_first = time_since_first / 60
+        
+        logger.info(
+            f"Deletion attempt {attempts['count']} for proposal {proposal_id} in space {space}. "
+            f"Time since first attempt: {minutes_since_first:.1f} minutes"
+        )
+        
+        if attempts["count"] >= 3 and time_since_first >= 2700:  # 3 attempts and 45 minutes (2700 seconds)
+            logger.info(
+                f"Proposal {proposal_id} in space {space} confirmed as deleted after "
+                f"{attempts['count']} attempts over {minutes_since_first:.1f} minutes"
+            )
+            # Clean up tracking data
+            del self.deletion_attempts[key]
+            del self.last_check_time[key]
+            return True
+            
+        return False
+
+    def clear_deletion_attempts(self, space: str, proposal_id: str):
+        """Clear deletion attempt tracking for a proposal."""
+        key = f"{space}:{proposal_id}"
+        if key in self.deletion_attempts:
+            attempts = self.deletion_attempts[key]
+            logger.info(
+                f"Clearing deletion attempts for proposal {proposal_id} in space {space} "
+                f"after {attempts['count']} attempts"
+            )
+            del self.deletion_attempts[key]
+        if key in self.last_check_time:
+            del self.last_check_time[key]
 
 class SpaceAlertTracker:
     """Tracks which spaces we've already alerted about."""
@@ -443,30 +503,36 @@ async def check_tracked_proposals(
                 # Check each proposal
                 for proposal_id in proposal_ids:
                     if proposal_id not in proposals:
-                        # Active proposal no longer exists - it was deleted
-                        logger.info(f"Active proposal {proposal_id} in space {space} no longer exists")
-                        # Get the project info from the watchlist
-                        projects = await load_snapshot_watchlist()
-                        project = next((p for p in projects if p["metadata"]["space"] == space), None)
-                        if project:
-                            await process_snapshot_proposal_alert(
-                                proposal={"id": proposal_id, "state": "deleted", "title": "Proposal Deleted", "space": space},
-                                project=project,
-                                previous_status=active_proposals[f"{space}:{proposal_id}"]["status"],
-                                alert_handler=alert_handler,
-                                alert_sender=slack_sender,
-                                snapshot_url=project["metadata"]["snapshot_url"],
-                                thread_ts=active_proposals[f"{space}:{proposal_id}"].get("thread_ts"),
-                                tracker=proposal_tracker,
-                                proposal_id=proposal_id,
-                                alert_type="proposal_deleted"
-                            )
-                            # Remove from tracking
-                            proposal_tracker.remove_proposal(proposal_id, project_id=space)
+                        # Active proposal not found - record deletion attempt
+                        if proposal_tracker.record_deletion_attempt(space, proposal_id):
+                            # Only mark as deleted after multiple failed attempts over 45 minutes
+                            logger.info(f"Active proposal {proposal_id} in space {space} confirmed as deleted after multiple attempts")
+                            # Get the project info from the watchlist
+                            projects = await load_snapshot_watchlist()
+                            project = next((p for p in projects if p["metadata"]["space"] == space), None)
+                            if project:
+                                await process_snapshot_proposal_alert(
+                                    proposal={"id": proposal_id, "state": "deleted", "title": "Proposal Deleted", "space": space},
+                                    project=project,
+                                    previous_status=active_proposals[f"{space}:{proposal_id}"]["status"],
+                                    alert_handler=alert_handler,
+                                    alert_sender=slack_sender,
+                                    snapshot_url=project["metadata"]["snapshot_url"],
+                                    thread_ts=active_proposals[f"{space}:{proposal_id}"].get("thread_ts"),
+                                    tracker=proposal_tracker,
+                                    proposal_id=proposal_id,
+                                    alert_type="proposal_deleted"
+                                )
+                                # Remove from tracking
+                                proposal_tracker.remove_proposal(proposal_id, project_id=space)
+                            else:
+                                logger.error(f"Could not find project info for space {space}")
                         else:
-                            logger.error(f"Could not find project info for space {space}")
+                            logger.info(f"Active proposal {proposal_id} in space {space} not found, recording deletion attempt")
                     else:
-                        # Proposal exists, check if state changed
+                        # Proposal exists, clear any deletion attempts
+                        proposal_tracker.clear_deletion_attempts(space, proposal_id)
+                        # Check if state changed
                         current_proposal = proposals[proposal_id]
                         if current_proposal.get("state") == "closed":
                             # Proposal has ended
@@ -527,7 +593,9 @@ async def monitor_snapshot_proposals(
             slack_bot_token=settings.SLACK_BOT_TOKEN,
             app_slack_channel=settings.APP_SLACK_CHANNEL,
             net_slack_channel=settings.NET_SLACK_CHANNEL,
-            disable_link_previews=False
+            test_slack_channel=settings.TEST_SLACK_CHANNEL,
+            disable_link_previews=False,
+            is_test_mode=is_test_mode
         )
         
         # Initialize alert handler with config

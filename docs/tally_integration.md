@@ -127,6 +127,15 @@ Required fields:
 - Uses separate state files in `data/test_proposal_tracking/`
 - Allows testing without affecting production state
 - Run with: `PYTHONPATH=. LOG_LEVEL=DEBUG python3 -m src.monitor.monitor_tally`
+- When running in test mode:
+  - All alerts are sent to `TEST_SLACK_CHANNEL`, regardless of `intel_label`
+  - Uses test state file (`data/test_proposal_tracking/tally_proposal_state.json`)
+  - Runs once and exits
+  - Ideal for testing new governors, alert formatting, and rate limiting
+- When running through `monitor.py` (production mode):
+  - Alerts are sent to `APP_SLACK_CHANNEL` or `NET_SLACK_CHANNEL` based on `intel_label`
+  - Uses production state file (`data/proposal_tracking/tally_proposal_state.json`)
+  - Runs continuously with configurable check interval
 
 ### Common Test Scenarios
 1. **Rate Limiting**:
