@@ -8,7 +8,7 @@ The Sky integration monitors governance proposals from the Sky Protocol, sending
 - Sends alerts to Slack with consistent formatting
 - Thread management for updates and end states
 - Comprehensive error handling and logging
-- Automatic cleanup of completed proposals
+- State cleanup only after successful ended alerts
 - Timezone-aware datetime handling for accurate status tracking
 
 ## Alert Types and Status Transitions
@@ -20,6 +20,7 @@ The Sky integration monitors governance proposals from the Sky Protocol, sending
   - Uses timezone-aware datetime comparison
   - Compares poll's end_time (UTC) with current time
   - Automatically transitions to "ended" when end_time is reached
+  - No intermediate "Update" alerts for polls
 
 ### Executive Votes
 - **Active**: Initial state when vote is created
@@ -35,7 +36,9 @@ The Sky integration monitors governance proposals from the Sky Protocol, sending
 - **Title Format:**
   - Executive Votes: "{Project Name} Executive Vote {Status}"
   - Polls: "{Project Name} Poll {Status}"
-- **Status Values:** Active, Update, Ended/Executed
+- **Status Values:** 
+  - Polls: Active, Ended
+  - Executive Votes: Active, Update, Ended/Executed
 - **Description:** Displays the proposal title
 - **Button:** "View Proposal" linking to the proposal URL
 
@@ -50,7 +53,8 @@ The Sky integration monitors governance proposals from the Sky Protocol, sending
 ## Configuration
 - Required environment variables in `.env`:
   - `SLACK_BOT_TOKEN`: Bot token for Slack integration
-  - `SLACK_CHANNEL`: Production channel for alerts
+  - `APP_SLACK_CHANNEL`: Channel for application governance alerts
+  - `NET_SLACK_CHANNEL`: Channel for network governance alerts
   - `TEST_SLACK_CHANNEL`: Channel for test alerts
   - `CHECK_INTERVAL`: Seconds between monitoring checks (default: 60)
 - The `sky_watchlist.json` file must include:
@@ -84,7 +88,7 @@ Example watchlist entry:
 python src/monitor.py --monitors sky
 ```
 - Uses production state file (`data/proposal_tracking/sky_proposal_state.json`)
-- Sends alerts to production channel
+- Sends alerts to appropriate channel based on intel_label
 - Runs continuously with configurable check interval
 - Can be run alongside other monitors (Tally, Cosmos, Snapshot)
 
@@ -115,9 +119,10 @@ python src/monitor.py --monitors sky
   - Unique proposal tracking with type:id keys (e.g., "poll:123", "executive:456")
   - Thread context preservation
   - Support percentage tracking for executive votes (stored but not displayed)
-  - Automatic cleanup of completed proposals
+  - State cleanup only after successful ended alerts
   - Atomic state file operations
   - Separate handling for polls and executive votes
+  - Safe dictionary iteration to prevent modification during processing
 
 ## Error Handling
 - Comprehensive error handling at multiple levels:
@@ -142,12 +147,14 @@ python src/monitor.py --monitors sky
 2. **State Management:**
    - Don't manually modify state files
    - Use test mode for validation
+   - State cleanup only occurs after successful ended alerts
    - Monitor state file size and clean up old entries if needed
 
 3. **Alert Handling:**
    - Verify thread context is maintained for proposal updates
    - Monitor alert frequency and adjust polling if needed
    - Check both polls and executive votes are properly tracked
+   - Ensure ended alerts are successfully sent before cleanup
 
 4. **Performance Monitoring:**
    - Track API response times
