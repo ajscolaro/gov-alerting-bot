@@ -61,13 +61,13 @@ class SkyAlertHandler(BaseAlertHandler):
             
         # For existing proposals
         if previous_status:
-            # For polls
+            # For polls - only alert on active and ended states
             if proposal.type == "poll":
                 if previous_status == "active" and proposal.status == "ended":
                     logger.info("Poll ended")
                     return True
             
-            # For executive votes
+            # For executive votes - alert on passed and executed states
             else:  # executive vote
                 # Alert when an active vote passes (as an update)
                 if previous_status == "active" and proposal.status == "passed":
