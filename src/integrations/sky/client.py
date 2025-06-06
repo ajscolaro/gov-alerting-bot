@@ -3,6 +3,7 @@ import logging
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
+import ssl
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,23 @@ class SkyClient:
     def __init__(self, base_url: str = "https://vote.sky.money"):
         self.base_url = base_url
         self.session = None
+        # Configure SSL context
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # Common headers for all requests
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://vote.sky.money",
+            "Referer": "https://vote.sky.money/"
+        }
     
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        # Create session with custom headers only
+        self.session = aiohttp.ClientSession(headers=self.headers)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -40,7 +55,7 @@ class SkyClient:
             raise RuntimeError("Client must be used as an async context manager")
             
         try:
-            async with self.session.get(f"{self.base_url}/api/polling/{poll_id}") as response:
+            async with self.session.get(f"{self.base_url}/api/polling/{poll_id}", ssl=self.ssl_context) as response:
                 if response.status == 404:
                     logger.info(f"Poll {poll_id} not found")
                     return None
@@ -57,7 +72,7 @@ class SkyClient:
             
         try:
             # First get active poll IDs
-            async with self.session.get(f"{self.base_url}/api/polling/active-poll-ids") as response:
+            async with self.session.get(f"{self.base_url}/api/polling/active-poll-ids", ssl=self.ssl_context) as response:
                 if response.status == 404:
                     logger.info("No active polls found")
                     return []
@@ -67,7 +82,7 @@ class SkyClient:
             # Then get details for each poll
             polls = []
             for poll_id in poll_ids:
-                async with self.session.get(f"{self.base_url}/api/polling/{poll_id}") as response:
+                async with self.session.get(f"{self.base_url}/api/polling/{poll_id}", ssl=self.ssl_context) as response:
                     if response.status == 404:
                         continue
                     response.raise_for_status()
@@ -85,7 +100,7 @@ class SkyClient:
             raise RuntimeError("Client must be used as an async context manager")
             
         try:
-            async with self.session.get(f"{self.base_url}/api/executive") as response:
+            async with self.session.get(f"{self.base_url}/api/executive", ssl=self.ssl_context) as response:
                 if response.status == 404:
                     logger.info("No executive votes found")
                     return []
@@ -105,7 +120,7 @@ class SkyClient:
             
         try:
             endpoint = "polls" if proposal_type == "poll" else "executive"
-            async with self.session.get(f"{self.base_url}/api/{endpoint}/{proposal_id}") as response:
+            async with self.session.get(f"{self.base_url}/api/{endpoint}/{proposal_id}", ssl=self.ssl_context) as response:
                 if response.status == 404:
                     return None
                 response.raise_for_status()
