@@ -135,8 +135,26 @@ async def process_tally_proposal_alert(
         # Determine alert type
         if not previous_status:
             alert_type = "proposal_active"
-        elif previous_status == "active" and proposal.status != "active":
-            alert_type = "proposal_ended"
+        elif previous_status == "active":
+            if proposal.status == "extended":
+                alert_type = "proposal_update"  # Handle extended as an update
+            elif proposal.status != "active":
+                alert_type = "proposal_ended"
+            else:
+                # Skip other status changes
+                return
+        elif previous_status == "extended":
+            # Handle transitions from extended to final states
+            final_statuses = {
+                "succeeded", "archived", "canceled", "callexecuted",
+                "defeated", "executed", "expired", "queued",
+                "pendingexecution", "crosschainexecuted"
+            }
+            if proposal.status.lower() in final_statuses:
+                alert_type = "proposal_ended"
+            else:
+                # Skip other status changes from extended
+                return
         else:
             # Skip other status changes
             return
