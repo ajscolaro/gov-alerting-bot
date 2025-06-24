@@ -51,6 +51,8 @@ The monitor system manages proposal state and alert delivery:
    - Detected when a proposal's state changes (e.g., to extended)
    - Sends alert as a thread reply
    - Updates tracking state
+   - **Extended Proposals**: When a proposal transitions from "active" to "extended", it sends a "proposal_update" alert instead of "proposal_ended"
+   - **Extended to Final**: When a proposal transitions from "extended" to a final state (succeeded, defeated, etc.), it sends a "proposal_ended" alert and removes from tracking
 
 3. **Ended Proposals**:
    - Detected when a proposal's state changes to final state (succeeded, defeated, etc.)
