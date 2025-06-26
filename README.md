@@ -1,6 +1,6 @@
 # Governance Alert Bot
 
-A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms, and Snapshot, sending alerts to Slack.
+A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms, Snapshot, Sky Protocol, and XRP Ledger, sending alerts to Slack.
 
 ## Features
 
@@ -171,7 +171,7 @@ TEST_CHECK_INTERVAL=60  # Optional: Polling interval for test mode
 python src/monitor.py
 
 # Run specific monitors in production mode
-python src/monitor.py --monitors tally cosmos snapshot sky
+python src/monitor.py --monitors tally cosmos snapshot sky xrpl
 
 # Run individual monitors in test mode (runs once and exits)
 python src/monitor/monitor_tally.py
@@ -194,7 +194,7 @@ Note:
 
 ## Google Sheets Watchlist Sync
 
-This project supports syncing watchlists from a Google Sheet, allowing you to manage Tally, Cosmos, Snapshot, and Sky integrations in one place.
+This project supports syncing watchlists from a Google Sheet, allowing you to manage Tally, Cosmos, Snapshot, Sky, and XRPL integrations in one place.
 
 ### Setup Steps
 
@@ -205,7 +205,7 @@ This project supports syncing watchlists from a Google Sheet, allowing you to ma
    - Create a service account and download the credentials JSON file
 
 2. **Share Your Google Sheet**
-   - Create a Google Sheet with separate tabs named `Tally`, `Cosmos`, `Snapshot`, and `Sky`
+   - Create a Google Sheet with separate tabs named `Tally`, `Cosmos`, `Snapshot`, `Sky`, and `XRPL`
    - Add the required columns for each integration (see below)
    - Share the sheet with your service account's email (found in the credentials JSON)
 

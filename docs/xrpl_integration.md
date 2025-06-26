@@ -107,18 +107,19 @@ python src/monitor/monitor_xrpl.py
 
 ### Production Mode
 ```bash
-# Note: XRPL integration is not yet added to the main monitor script
-# For now, run the individual monitor for testing
-python src/monitor/monitor_xrpl.py
-```
-
-**Future Production Mode** (when added to main script):
-```bash
+# Run XRPL monitor as part of the main monitoring script
 python src/monitor.py --monitors xrpl
+
+# Run XRPL monitor with other monitors
+python src/monitor.py --monitors tally cosmos xrpl
+
+# Run all monitors including XRPL
+python src/monitor.py
 ```
 - Runs continuously
 - Uses production state files
 - Sends alerts to `NET_SLACK_CHANNEL` based on `intel_label`
+- Uses the `CHECK_INTERVAL` from your `.env` file
 
 ## Example Alerts
 
