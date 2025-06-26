@@ -10,6 +10,7 @@ class IntegrationType(Enum):
     COSMOS = "cosmos"
     SNAPSHOT = "snapshot"
     SKY = "sky"
+    XRPL = "xrpl"
 
 @dataclass
 class WatchlistItem:
@@ -208,5 +209,47 @@ class SkyWatchlistItem(WatchlistItem):
             "metadata": {
                 "poll_url": self.poll_url,
                 "executive_url": self.executive_url
+            }
+        }
+
+@dataclass
+class XRPLWatchlistItem(WatchlistItem):
+    """XRPL-specific watchlist item."""
+    api_url: str
+    amendment_url: str
+
+    @classmethod
+    def from_sheet_row(cls, row: List[str]) -> 'XRPLWatchlistItem':
+        """Create an XRPLWatchlistItem from a sheet row.
+        
+        Expected columns:
+        0: name
+        1: description
+        2: intel_label
+        3: api_url
+        4: amendment_url
+        5: metadata (optional)
+        """
+        if len(row) < 5:
+            raise ValueError(f"Invalid row length: {len(row)}")
+        
+        return cls(
+            name=row[0],
+            description=row[1],
+            intel_label=row[2],
+            metadata={},
+            api_url=row[3],
+            amendment_url=row[4]
+        )
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary format for watchlist file."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "intel_label": self.intel_label,
+            "metadata": {
+                "api_url": self.api_url,
+                "amendment_url": self.amendment_url
             }
         } 

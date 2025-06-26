@@ -13,6 +13,7 @@ from .models import (
     CosmosWatchlistItem,
     SnapshotWatchlistItem,
     SkyWatchlistItem,
+    XRPLWatchlistItem,
     WatchlistItem
 )
 
@@ -26,7 +27,8 @@ class WatchlistSync:
         IntegrationType.TALLY: ("Tally", TallyWatchlistItem),
         IntegrationType.COSMOS: ("Cosmos", CosmosWatchlistItem),
         IntegrationType.SNAPSHOT: ("Snapshot", SnapshotWatchlistItem),
-        IntegrationType.SKY: ("Sky", SkyWatchlistItem)
+        IntegrationType.SKY: ("Sky", SkyWatchlistItem),
+        IntegrationType.XRPL: ("XRPL", XRPLWatchlistItem)
     }
 
     def __init__(
@@ -123,6 +125,8 @@ class WatchlistSync:
             return item.space
         elif integration_type == IntegrationType.SKY:
             return item.name
+        elif integration_type == IntegrationType.XRPL:
+            return item.name
         return item.name
 
     def _reconstruct_item(self, item_class, p: dict) -> WatchlistItem:
@@ -163,6 +167,12 @@ class WatchlistSync:
                 **base_args,
                 poll_url=meta.get('poll_url', ''),
                 executive_url=meta.get('executive_url', '')
+            )
+        elif item_class.__name__ == 'XRPLWatchlistItem':
+            return item_class(
+                **base_args,
+                api_url=meta.get('api_url', ''),
+                amendment_url=meta.get('amendment_url', '')
             )
         else:
             return item_class(**base_args)

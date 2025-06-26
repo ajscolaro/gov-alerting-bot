@@ -1,6 +1,6 @@
 # Governance Alert Bot
 
-A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms, and Snapshot, sending alerts to Slack.
+A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms, Snapshot, Sky Protocol, and XRP Ledger, sending alerts to Slack.
 
 ## Features
 
@@ -9,11 +9,13 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
   - Cosmos SDK (Cosmos Hub, Osmosis, Celestia, and other Cosmos chains)
   - Snapshot (Off-chain governance platforms)
   - Sky Protocol (Polls and Executive votes)
+  - XRP Ledger (Amendments)
 - Sends alerts to Slack for:
   - New active proposals 
   - Proposal status updates
   - Ended proposals
   - Deleted proposals (Snapshot)
+  - Amendment activations and enablements (XRPL)
 - Thread management: Updates and end states are sent as thread replies to the original alert
 - Consistent message formatting with action buttons to view proposals
 - Rate-limited API calls to respect platform restrictions
@@ -27,6 +29,7 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 - [Cosmos Integration](docs/cosmos_integration.md) - Information about Cosmos SDK chain monitoring and API handling
 - [Tally Integration](docs/tally_integration.md) - Details about Tally governance monitoring and alerts
 - [Sky Integration](docs/sky_integration.md) - Information about Sky Protocol monitoring and alert handling
+- [XRPL Integration](docs/xrpl_integration.md) - Information about XRP Ledger amendment monitoring and alerts
 
 ## Project Structure
 
@@ -37,18 +40,21 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 │   │   ├── tally_watchlist.json    # Tally projects configuration
 │   │   ├── cosmos_watchlist.json   # Cosmos networks configuration
 │   │   ├── snapshot_watchlist.json # Snapshot spaces configuration
-│   │   └── sky_watchlist.json      # Sky Protocol configuration
+│   │   ├── sky_watchlist.json      # Sky Protocol configuration
+│   │   └── xrpl_watchlist.json     # XRP Ledger configuration
 │   ├── proposal_tracking/       # State tracking for proposals
 │   │   ├── tally_proposal_state.json    # Tally proposals state
 │   │   ├── cosmos_proposal_state.json   # Cosmos proposals state
 │   │   ├── snapshot_proposal_state.json # Snapshot proposals state
 │   │   ├── sky_proposal_state.json      # Sky proposals state
+│   │   ├── xrpl_proposal_state.json     # XRPL amendments state
 │   │   └── admin_alerts.json           # Tracks alerts that require admin action, like invalid space ids
 │   └── test_proposal_tracking/  # Test state tracking
 │       ├── tally_proposal_state.json    # Test state for Tally
 │       ├── cosmos_proposal_state.json   # Test state for Cosmos
 │       ├── snapshot_proposal_state.json # Test state for Snapshot
-│       └── sky_proposal_state.json      # Test state for Sky
+│       ├── sky_proposal_state.json      # Test state for Sky
+│       └── xrpl_proposal_state.json     # Test state for XRPL
 ├── src/
 │   ├── common/
 │   │   ├── alerts/            # Common alert handling code
@@ -74,15 +80,20 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 │   │   │   ├── client.py     # API client for Snapshot
 │   │   │   ├── alerts.py     # Alert formatting for Snapshot
 │   │   │   └── __init__.py
-│   │   └── sky/              # Sky Protocol integration
-│   │       ├── client.py     # API client for Sky
-│   │       ├── alerts.py     # Alert formatting for Sky
+│   │   ├── sky/              # Sky Protocol integration
+│   │   │   ├── client.py     # API client for Sky
+│   │   │   ├── alerts.py     # Alert formatting for Sky
+│   │   │   └── __init__.py
+│   │   └── xrpl/             # XRP Ledger integration
+│   │       ├── client.py     # API client for XRPL
+│   │       ├── alerts.py     # Alert formatting for XRPL
 │   │       └── __init__.py
 │   ├── monitor/              # Monitoring scripts
 │   │   ├── monitor_tally.py  # Tally monitoring script
 │   │   ├── monitor_cosmos.py # Cosmos monitoring script
 │   │   ├── monitor_snapshot.py # Snapshot monitoring script
 │   │   ├── monitor_sky.py    # Sky monitoring script
+│   │   ├── monitor_xrpl.py   # XRPL monitoring script
 │   │   └── __init__.py
 │   ├── monitor.py            # Main monitoring script (runs all monitors)
 │   └── __init__.py
@@ -90,7 +101,8 @@ A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms
 │   ├── snapshot_integration.md
 │   ├── cosmos_integration.md
 │   ├── tally_integration.md
-│   └── sky_integration.md
+│   ├── sky_integration.md
+│   └── xrpl_integration.md
 ├── .env                    # Environment configuration
 ├── requirements.txt        # Production dependencies
 └── requirements-dev.txt    # Development dependencies
@@ -144,6 +156,10 @@ TEST_CHECK_INTERVAL=60  # Optional: Polling interval for test mode
      {}
      ```
      ```json
+     # data/proposal_tracking/xrpl_proposal_state.json
+     {}
+     ```
+     ```json
      # data/proposal_tracking/admin_alerts.json
      {}
      ```
@@ -155,13 +171,14 @@ TEST_CHECK_INTERVAL=60  # Optional: Polling interval for test mode
 python src/monitor.py
 
 # Run specific monitors in production mode
-python src/monitor.py --monitors tally cosmos snapshot sky
+python src/monitor.py --monitors tally cosmos snapshot sky xrpl
 
 # Run individual monitors in test mode (runs once and exits)
 python src/monitor/monitor_tally.py
 python src/monitor/monitor_cosmos.py
 python src/monitor/monitor_snapshot.py
 python src/monitor/monitor_sky.py
+python src/monitor/monitor_xrpl.py
 ```
 
 Note: 
@@ -177,7 +194,7 @@ Note:
 
 ## Google Sheets Watchlist Sync
 
-This project supports syncing watchlists from a Google Sheet, allowing you to manage Tally, Cosmos, Snapshot, and Sky integrations in one place.
+This project supports syncing watchlists from a Google Sheet, allowing you to manage Tally, Cosmos, Snapshot, Sky, and XRPL integrations in one place.
 
 ### Setup Steps
 
@@ -188,7 +205,7 @@ This project supports syncing watchlists from a Google Sheet, allowing you to ma
    - Create a service account and download the credentials JSON file
 
 2. **Share Your Google Sheet**
-   - Create a Google Sheet with separate tabs named `Tally`, `Cosmos`, `Snapshot`, and `Sky`
+   - Create a Google Sheet with separate tabs named `Tally`, `Cosmos`, `Snapshot`, `Sky`, and `XRPL`
    - Add the required columns for each integration (see below)
    - Share the sheet with your service account's email (found in the credentials JSON)
 
@@ -216,6 +233,10 @@ This project supports syncing watchlists from a Google Sheet, allowing you to ma
    - **Sky:**
      ```
      name | description | intel_label | poll_url | executive_url
+     ```
+   - **XRPL:**
+     ```
+     name | description | intel_label | api_url | amendment_url | metadata
      ```
 
 5. **Run the Sync Script**
