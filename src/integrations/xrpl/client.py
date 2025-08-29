@@ -20,8 +20,9 @@ class XRPLAmendment(BaseModel):
     threshold: Optional[int] = None
     validations: Optional[int] = None
     enabled_on: Optional[str] = None
+    enabled_in_ledger: Optional[int] = None
     tx_hash: Optional[str] = None
-    majority: Optional[str] = None
+    majority: Optional[int] = None
 
     def is_active(self) -> bool:
         """Check if amendment is active (not enabled but supported)."""
@@ -81,7 +82,12 @@ class XRPLClient:
             # Check amendments that were previously alerted but might have ended
             ended_amendments = []
             if tracked_amendments:
+                logger.info(f"Checking {len(tracked_amendments)} tracked amendments for status changes")
                 ended_amendments = await self._check_ended_amendments(tracked_amendments)
+                if ended_amendments:
+                    logger.info(f"Found {len(ended_amendments)} amendments that have been enabled")
+                else:
+                    logger.info("No tracked amendments have been enabled")
             
             # Combine the active and ended amendments
             all_amendments = amendments + ended_amendments
@@ -145,7 +151,9 @@ class XRPLClient:
         
         for amendment_id, tracked_data in tracked_amendments.items():
             # Only check amendments that were previously active (not enabled)
-            if tracked_data.get("enabled", True):
+            # Default to False if not present, since we want to check amendments that might have become enabled
+            if tracked_data.get("enabled", False):
+                logger.debug(f"Skipping amendment {amendment_id} - already marked as enabled")
                 continue
             
             try:
@@ -153,7 +161,9 @@ class XRPLClient:
                 amendment = await self.get_amendment_by_id(amendment_id)
                 if amendment and amendment.has_ended():
                     ended_amendments.append(amendment)
-                    logger.info(f"Amendment {amendment_id} has ended (enabled)")
+                    logger.info(f"Amendment {amendment_id} ({amendment.name}) has ended (enabled)")
+                elif amendment:
+                    logger.debug(f"Amendment {amendment_id} ({amendment.name}) status: enabled={amendment.enabled}, enabled_on={amendment.enabled_on}")
             except Exception as e:
                 logger.error(f"Error checking amendment {amendment_id}: {e}")
                 continue
@@ -200,6 +210,7 @@ class XRPLClient:
             threshold=amendment_data.get("threshold"),
             validations=amendment_data.get("validations"),
             enabled_on=amendment_data.get("enabled_on"),
+            enabled_in_ledger=amendment_data.get("enabled_in_ledger"),
             tx_hash=amendment_data.get("tx_hash"),
             majority=amendment_data.get("majority")
         )
