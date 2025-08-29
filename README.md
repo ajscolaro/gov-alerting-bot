@@ -2,6 +2,16 @@
 
 A Python bot that monitors governance proposals from Tally, Cosmos SDK platforms, Snapshot, Sky Protocol, and XRP Ledger, sending alerts to Slack.
 
+## Recent Updates
+
+### v2.1.0 - XRPL Integration Fixes
+- **Fixed amendment status detection**: Resolved issue where enabled amendments were not being detected
+- **Improved data parsing**: Fixed validation errors with the `majority` field and added support for `enabled_in_ledger`
+- **Enhanced logging**: Better tracking of amendment status checking process
+- **Result**: The XRPL integration now properly detects and alerts when amendments become enabled
+
+For detailed information about the fixes, see [XRPL Integration Documentation](docs/xrpl_integration.md#recent-fixes-v210).
+
 ## Features
 
 - Monitors governance proposals from:

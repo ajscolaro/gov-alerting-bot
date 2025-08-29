@@ -6,6 +6,24 @@ This document describes the XRP Ledger (XRPL) amendments integration for the Gov
 
 The XRPL integration monitors amendments on the XRP Ledger mainnet using the [XRPScan API](https://docs.xrpscan.com/api-documentation/amendment/amendments). It tracks amendments that are supported by validators but not yet enabled, and sends alerts when amendments become active or are enabled.
 
+## Recent Fixes (v2.1.0)
+
+### Amendment Status Detection Fix
+- **Issue**: Previously, amendments that became enabled were not being detected due to incorrect default value logic in status checking
+- **Fix**: Corrected the default value in `_check_ended_amendments` method from `True` to `False`
+- **Result**: The integration now properly detects when tracked amendments become enabled and sends "amendment ended" alerts
+
+### Data Parsing Improvements
+- **Issue**: The `majority` field was defined as string but the API returns integers, causing validation errors
+- **Fix**: Updated the `XRPLAmendment` model to handle `majority` as `Optional[int]`
+- **Added**: Support for `enabled_in_ledger` field from the API response
+- **Result**: All amendments now parse correctly without validation errors
+
+### Enhanced Logging
+- **Added**: Better logging for amendment status checking process
+- **Added**: Detailed logging when amendments are detected as enabled
+- **Result**: Improved debugging and monitoring capabilities
+
 ## Alert Types
 
 ### Amendment Active
@@ -75,6 +93,27 @@ The integration uses the following XRPScan API endpoints:
 - `supported: true`
 - `enabled_on` timestamp present
 - May have `tx_hash` for the enabling transaction
+- May have `enabled_in_ledger` for the ledger number when enabled
+
+## Data Model
+
+The `XRPLAmendment` model includes these fields:
+
+```python
+class XRPLAmendment(BaseModel):
+    amendment_id: str
+    name: str
+    introduced: str
+    enabled: bool
+    supported: bool
+    count: Optional[int] = None
+    threshold: Optional[int] = None
+    validations: Optional[int] = None
+    enabled_on: Optional[str] = None
+    enabled_in_ledger: Optional[int] = None
+    tx_hash: Optional[str] = None
+    majority: Optional[int] = None  # Fixed: Now handles integer values from API
+```
 
 ## Monitoring Behavior
 
@@ -86,9 +125,15 @@ The integration uses the following XRPScan API endpoints:
 
 ### Alert Logic
 1. **New Amendment Detection**: When an amendment is found that is supported but not enabled
-2. **Status Change Detection**: When a tracked amendment becomes enabled
+2. **Status Change Detection**: When a tracked amendment becomes enabled (now properly detected)
 3. **Thread Management**: Enabled alerts are sent as replies to the original active alert
 4. **Cleanup**: Enabled amendments are immediately removed from tracking after sending the "enabled" alert
+
+### Amendment Status Checking
+The integration now properly checks all tracked amendments for status changes:
+- Fetches individual amendment details for each tracked amendment
+- Correctly identifies when `enabled` changes from `false` to `true`
+- Sends alerts for all status changes, not just new amendments
 
 ### Rate Limiting
 - Minimum 1 second between API requests
@@ -141,7 +186,7 @@ MultiSign - Enabled on 2016-06-27 23:34 UTC
 
 - **API Failures**: Logged but don't stop monitoring
 - **Network Timeouts**: 60-second timeout with automatic retry
-- **Invalid Data**: Amendments with parsing errors are skipped
+- **Invalid Data**: Amendments with parsing errors are skipped (now rare due to data model fixes)
 - **Missing Thread Context**: Warning logged if original alert context is lost
 
 ## Integration with Google Sheets
@@ -186,6 +231,7 @@ The XRPScan API has the following rate limits:
 2. **Alerts not sending**: Verify Slack configuration and channel permissions
 3. **Thread context lost**: Check state file integrity and Slack message history
 4. **API timeouts**: Verify network connectivity and XRPScan API status
+5. **Amendments not being detected as enabled**: This issue has been fixed in v2.1.0
 
 ### Debug Mode
 
@@ -201,3 +247,19 @@ Check the state files to verify amendment tracking:
 cat data/proposal_tracking/xrpl_proposal_state.json
 cat data/test_proposal_tracking/xrpl_proposal_state.json
 ```
+
+### Testing the Fix
+
+To verify that the amendment status detection fix is working:
+
+1. Run the monitor in test mode:
+   ```bash
+   python src/monitor/monitor_xrpl.py
+   ```
+
+2. Look for these log messages:
+   - "Checking X tracked amendments for status changes"
+   - "Found X amendments that have been enabled"
+   - "Amendment {id} ({name}) has ended (enabled)"
+
+3. Check that enabled amendments are properly removed from the test state file
